@@ -1,5 +1,5 @@
 import json
-from typing import cast
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -234,10 +234,10 @@ class Executor:
 
         if output_names:
             result = call_llm(self.llm, llm_messages, dict, self.formatter_llm)
-            return cast(dict[str, str], result)
-        else:
-            result = call_llm(self.llm, llm_messages, str, self.formatter_llm)
-            return cast(str, result)
+            return dict(result)
+
+        str_result = call_llm(self.llm, llm_messages, str, self.formatter_llm)
+        return str(str_result)
 
 
 class ValidateResult(BaseModel):
@@ -329,7 +329,7 @@ Return in JSON format:
     @staticmethod
     def _quick_check_output_type(
             output_names: dict[str, str],
-            output: str | dict[str, str]
+            output: str | dict[str, Any]
     ) -> ValidateResult | None:
         """Quick validation of parameters
 
@@ -338,14 +338,16 @@ Return in JSON format:
             None: If quick validation passes (including when output is str type), return None
                   In this case, need to call LLM for deep validation
         """
-        if not isinstance(output, str):
-            for k, v in output.items():
-                if not isinstance(v, str):
-                    return ValidateResult(passed=False,
-                                          reason=f"All values in the returned JSON must be strings, but the value for \"{k}\" is not a string type")
-            for output_name in output_names:
-                if output_name not in output:
-                    return ValidateResult(passed=False, reason=f"Missing field \"{output_name}\"")
+        if isinstance(output, str):
+            return None
+
+        for k, v in output.items():
+            if not isinstance(v, str):
+                return ValidateResult(passed=False,
+                                      reason=f"All values in the returned JSON must be strings, but the value for \"{k}\" is not a string type")
+        for output_name in output_names:
+            if output_name not in output:
+                return ValidateResult(passed=False, reason=f"Missing field \"{output_name}\"")
         return None
 
 

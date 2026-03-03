@@ -1,8 +1,8 @@
-from coralmind import Agent
-from coralmind.model import Plan, TaskTemplate
-
 from fake_llm import FakeLLMInstance
 from plan_example import plan_example
+
+from coralmind import Agent
+from coralmind.model import Plan, TaskTemplate
 
 
 def test_plan():
@@ -16,10 +16,10 @@ def test_plan():
 
 
 def test_plan_single_node():
-    from coralmind.model import PlanNode, InputField, InputFieldSourceType
-    
+    from coralmind.model import InputField, InputFieldSourceType, PlanNode
+
     agent = Agent(default_llm=FakeLLMInstance)
-    
+
     plan = Plan(
         nodes=[
             PlanNode(
@@ -38,5 +38,5 @@ def test_plan_single_node():
         ]
     )
     task_template = TaskTemplate(material_names=["input"], requirements="测试")
-    
+
     agent.planner._validate_plan(task_template, plan)

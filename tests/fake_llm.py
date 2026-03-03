@@ -1,5 +1,4 @@
 import json
-from typing import Type, Optional
 from unittest.mock import patch
 
 from pydantic import BaseModel
@@ -10,21 +9,21 @@ from coralmind import LLMConfig
 class FakeLLM:
     """
     Fake LLM for testing purposes.
-    
+
     Returns predefined responses instead of calling real LLM APIs.
     """
-    
-    def __init__(self, responses: Optional[dict] = None):
+
+    def __init__(self, responses: dict | None = None):
         self.responses = responses or {}
         self.call_history: list[dict] = []
-    
+
     def get_config(self) -> LLMConfig:
         return LLMConfig(
             model_id="fake-model",
             base_url="https://fake.api/v1",
             api_key="fake-api-key",
         )
-    
+
     def set_response(self, key: str, response: str | dict | BaseModel):
         if isinstance(response, BaseModel):
             self.responses[key] = response.model_dump_json()
@@ -32,27 +31,27 @@ class FakeLLM:
             self.responses[key] = json.dumps(response)
         else:
             self.responses[key] = response
-    
-    def mock_call(self, llm, messages: list[dict], output_type: Type, formatter_llm=None):
+
+    def mock_call(self, llm, messages: list[dict], output_type: type, formatter_llm=None):
         self.call_history.append({"messages": messages, "output_type": output_type})
-        
+
         response_key = self._extract_key(messages, output_type)
-        
+
         if response_key in self.responses:
             content = self.responses[response_key]
         else:
             content = self._generate_default_response(output_type)
-        
+
         if output_type is str:
             return content
         elif output_type is dict:
             return json.loads(content) if isinstance(content, str) else content
         else:
             return output_type.model_validate_json(content)
-    
-    def _extract_key(self, messages: list[dict], output_type: Type) -> str:
+
+    def _extract_key(self, messages: list[dict], output_type: type) -> str:
         all_content = " ".join([m.get("content", "") for m in messages])
-        
+
         if output_type and hasattr(output_type, '__name__'):
             type_name = output_type.__name__
             if 'Plan' in type_name:
@@ -63,7 +62,7 @@ class FakeLLM:
                 return "score"
             elif 'Format' in type_name:
                 return "format"
-        
+
         if "执行计划" in all_content or "plan" in all_content.lower():
             return "plan"
         elif "校验" in all_content or "validate" in all_content.lower():
@@ -74,8 +73,8 @@ class FakeLLM:
             return "format"
         else:
             return "execute"
-    
-    def _generate_default_response(self, output_type: Type) -> str:
+
+    def _generate_default_response(self, output_type: type) -> str:
         if output_type is str:
             return "Fake LLM response"
         elif output_type is dict:
@@ -99,18 +98,18 @@ class FakeLLM:
 def create_mock_llm(fake_llm: FakeLLM):
     """
     Create a mock context manager that patches the LLM call.
-    
+
     Usage:
         fake = FakeLLM()
         fake.set_response("plan", '{"nodes": [...]}')
-        
+
         with create_mock_llm(fake):
             agent = Agent(default_llm=fake.get_config())
             result = agent.run(task)
     """
     def mock_call(llm, messages, output_type, formatter_llm=None):
         return fake_llm.mock_call(llm, messages, output_type, formatter_llm)
-    
+
     return patch('coralmind.worker.call_llm', side_effect=mock_call)
 
 

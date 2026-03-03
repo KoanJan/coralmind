@@ -18,12 +18,12 @@ class TaskTemplateRO:
     @property
     def material_names(self) -> list[str]:
         data: dict[str, Any] = json.loads(self.task_template_json)
-        return data.get("material_names", [])
+        return list(data.get("material_names", []))
 
     @property
     def requirements(self) -> str:
         data: dict[str, Any] = json.loads(self.task_template_json)
-        return data.get("requirements", "")
+        return str(data.get("requirements", ""))
 
 
 class TaskTemplateStorage:
@@ -64,7 +64,7 @@ class TaskTemplateStorage:
                     (task_template_json,)
                 )
                 row = cursor.fetchone()
-                return row["id"]
+                return int(row["id"])
 
     @staticmethod
     def find_by_content(task_template_json: str) -> TaskTemplateRO | None:

@@ -1,10 +1,10 @@
-from coralmind import Task, Material
+from coralmind import Material, Task
 
 task_example_materials = [
     Material(
         name="market_report",
         content="""2024 年全球智能家居市场分析报告
-                
+
 一、市场规模与增长
 2023 年全球智能家居市场规模达到 1180 亿美元，同比增长 18.5%。预计到 2028 年将达到 3380 亿美元，年复合增长率（CAGR）为 23.4%。
 亚太地区增长最快，中国市场规模达到 280 亿美元，占全球市场的 23.7%，同比增长 25.3%。
@@ -41,7 +41,7 @@ AI 大模型集成，语音助手智能化程度大幅提升
     Material(
         name="competitor_analysis",
         content="""主要竞争对手分析
-                
+
 A 公司（市场领导者）
 - 市场份额：24%
 - 核心产品：智能音箱 + 全屋智能系统
@@ -77,7 +77,7 @@ D 公司（新兴品牌）
     Material(
         name="user_survey",
         content="""用户需求调研数据（样本量：5000 人）
-                
+
 一、用户画像分布
 年龄：18-25 岁（18%）、26-35 岁（42%）、36-45 岁（25%）、46 岁以上（15%）
 城市等级：一线城市（35%）、新一线（28%）、二线（22%）、三线及以下（15%）

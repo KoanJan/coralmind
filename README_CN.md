@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"/>
   </a>
   <a href="https://www.python.org/">
-    <img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python version"/>
+    <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python version"/>
   </a>
   <a href="https://github.com/KoanJan/coralmind/actions">
     <img src="https://github.com/KoanJan/coralmind/workflows/Python%20Package/badge.svg" alt="Tests"/>

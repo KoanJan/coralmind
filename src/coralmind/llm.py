@@ -69,7 +69,7 @@ def call_llm(
     if output_type is dict:
         return _to_dict(formatter_llm, content)
     else:
-        return _to_model(formatter_llm, content, output_type)
+        return _to_model(formatter_llm, content, cast(type[BaseModel], output_type))
 
 
 def _call_llm(llm: LLMConfig, messages: list[dict[str, str]]) -> str:
