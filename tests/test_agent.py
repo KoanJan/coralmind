@@ -1,8 +1,20 @@
+import os
+import tempfile
+
 import pytest
 from fake_llm import FakeLLM, FakeLLMInstance, create_mock_llm
 
 from coralmind import Agent, Material, PlanValidationError, Task
 from coralmind.model import InputField, InputFieldSourceType, Plan, PlanNode, TaskTemplate
+from coralmind.storage import init_storage, set_db_path
+from coralmind.storage.plan import PlanStorage
+
+
+def _reset_and_init_storage(db_path: str):
+    import coralmind.storage as storage_module
+    storage_module._initialized = False
+    set_db_path(db_path)
+    init_storage()
 
 
 def test_agent_simple_task():
@@ -200,3 +212,92 @@ def test_plan_validation_invalid_material():
 
     with pytest.raises(PlanValidationError, match="not found in task template"):
         agent.planner._validate_plan(task_template, plan)
+
+
+class TestSavePlan:
+
+    @pytest.fixture(autouse=True)
+    def setup_temp_db(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            self.temp_db_path = f.name
+        _reset_and_init_storage(self.temp_db_path)
+        yield
+        os.unlink(self.temp_db_path)
+
+    def test_save_plan_new(self):
+        fake = FakeLLM()
+        fake.set_response("plan", Plan(
+            nodes=[
+                PlanNode(
+                    id="node_1",
+                    requirements="处理",
+                    input_fields=[
+                        InputField(
+                            source_type=InputFieldSourceType.ORIGINAL_MATERIAL,
+                            material_name="input",
+                            output_of_another_node=None,
+                        )
+                    ],
+                    output_names=None,
+                    is_final_node=True,
+                )
+            ]
+        ))
+        fake.set_response("execute", "结果")
+        fake.set_response("score", {"score": 8, "reason": "良好"})
+        fake.set_response("format", {"need_reformat": False, "new_content": None})
+
+        with create_mock_llm(fake):
+            agent = Agent(default_llm=fake.get_config())
+
+            task = Task(
+                materials=[Material(name="input", content="测试")],
+                requirements="处理"
+            )
+
+            agent.run(task)
+
+            plans = PlanStorage.get_by_task_template_id(1)
+            assert len(plans) == 1
+            assert plans[0].total_score == 8
+            assert plans[0].exec_times == 1
+            assert plans[0].total_tokens > 0
+
+    def test_save_plan_updates_existing(self):
+        fake = FakeLLM()
+        fake.set_response("plan", Plan(
+            nodes=[
+                PlanNode(
+                    id="node_1",
+                    requirements="处理",
+                    input_fields=[
+                        InputField(
+                            source_type=InputFieldSourceType.ORIGINAL_MATERIAL,
+                            material_name="input",
+                            output_of_another_node=None,
+                        )
+                    ],
+                    output_names=None,
+                    is_final_node=True,
+                )
+            ]
+        ))
+        fake.set_response("execute", "结果")
+        fake.set_response("score", {"score": 9, "reason": "优秀"})
+        fake.set_response("format", {"need_reformat": False, "new_content": None})
+
+        with create_mock_llm(fake):
+            agent = Agent(default_llm=fake.get_config())
+
+            task = Task(
+                materials=[Material(name="input", content="测试")],
+                requirements="处理"
+            )
+
+            agent.run(task)
+            agent.run(task)
+
+            plans = PlanStorage.get_by_task_template_id(1)
+            assert len(plans) == 1
+            assert plans[0].total_score == 18
+            assert plans[0].exec_times == 2

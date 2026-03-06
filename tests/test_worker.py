@@ -5,6 +5,7 @@ import pytest
 from fake_llm import FakeLLM, create_mock_llm
 
 from coralmind import Material, PlanValidationError, Task
+from coralmind.llm import LLMResponse
 from coralmind.model import InputField, InputFieldSourceType, Plan, PlanAdvice, PlanAdviceType, PlanNode, TaskTemplate
 from coralmind.storage import init_storage, set_db_path
 from coralmind.storage.plan import PlanStorage
@@ -45,10 +46,11 @@ class TestPlanner:
             planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
             task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
-            result = planner.make_plan(task_template, advice=None)
+            response = planner.make_plan(task_template, advice=None)
 
-            assert result is not None
-            assert len(result.nodes) == 1
+            assert response is not None
+            assert isinstance(response, LLMResponse)
+            assert len(response.content.nodes) == 1
 
     def test_make_plan_with_use_advice(self):
         fake = FakeLLM()
@@ -78,9 +80,9 @@ class TestPlanner:
             planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
             task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
-            result = planner.make_plan(task_template, advice)
+            response = planner.make_plan(task_template, advice)
 
-            assert result.nodes[0].id == "node_1"
+            assert response.content.nodes[0].id == "node_1"
 
     def test_validate_plan_empty_nodes(self):
         fake = FakeLLM()
@@ -128,13 +130,14 @@ class TestExecutor:
         with create_mock_llm(fake):
             executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            result = executor.execute(
+            response = executor.execute(
                 materials={"input": "测试内容"},
                 requirements="处理输入",
                 output_names=None
             )
 
-            assert result == "这是执行结果"
+            assert isinstance(response, LLMResponse)
+            assert response.content == "这是执行结果"
 
     def test_execute_dict_output(self):
         fake = FakeLLM()
@@ -143,13 +146,14 @@ class TestExecutor:
         with create_mock_llm(fake):
             executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            result = executor.execute(
+            response = executor.execute(
                 materials={"article": "文章内容"},
                 requirements="提取关键词",
                 output_names={"keywords": "关键词列表"}
             )
 
-            assert result == {"keywords": "AI, ML, DL"}
+            assert isinstance(response, LLMResponse)
+            assert response.content == {"keywords": "AI, ML, DL"}
 
     def test_execute_with_retry(self):
         fake = FakeLLM()
@@ -158,7 +162,7 @@ class TestExecutor:
         with create_mock_llm(fake):
             executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            result = executor.execute(
+            response = executor.execute(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_names=None,
@@ -166,7 +170,8 @@ class TestExecutor:
                 reject_reason="输出不完整"
             )
 
-            assert result == "重试后的结果"
+            assert isinstance(response, LLMResponse)
+            assert response.content == "重试后的结果"
 
 
 class TestValidator:
@@ -178,14 +183,15 @@ class TestValidator:
         with create_mock_llm(fake):
             validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            result = validator.validate(
+            response = validator.validate(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_names={},
                 output="结果"
             )
 
-            assert result.passed is True
+            assert isinstance(response, LLMResponse)
+            assert response.content.passed is True
 
     def test_validate_fail(self):
         fake = FakeLLM()
@@ -194,15 +200,16 @@ class TestValidator:
         with create_mock_llm(fake):
             validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            result = validator.validate(
+            response = validator.validate(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_names={},
                 output="结果"
             )
 
-            assert result.passed is False
-            assert "不完整" in result.reason
+            assert isinstance(response, LLMResponse)
+            assert response.content.passed is False
+            assert "不完整" in response.content.reason
 
     def test_quick_check_missing_field(self):
         result = Validator._quick_check_output_type(
@@ -235,15 +242,7 @@ class TestValidator:
 
 class TestEvaluator:
 
-    @pytest.fixture(autouse=True)
-    def setup_temp_db(self):
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            self.temp_db_path = f.name
-        _reset_and_init_storage(self.temp_db_path)
-        yield
-        os.unlink(self.temp_db_path)
-
-    def test_score_new_plan(self):
+    def test_score(self):
         fake = FakeLLM()
         fake.set_response("score", {"score": 8, "reason": "结果良好"})
 
@@ -254,72 +253,12 @@ class TestEvaluator:
                 materials=[Material(name="input", content="测试内容")],
                 requirements="处理输入"
             )
-            plan = Plan(
-                nodes=[
-                    PlanNode(
-                        id="node_1",
-                        requirements="处理",
-                        input_fields=[
-                            InputField(
-                                source_type=InputFieldSourceType.ORIGINAL_MATERIAL,
-                                material_name="input",
-                                output_of_another_node=None,
-                            )
-                        ],
-                        output_names=None,
-                        is_final_node=True,
-                    )
-                ]
-            )
 
-            score = evaluator.score(task_template_id=1, plan=plan, task=task, output="结果")
+            response = evaluator.score(task, "结果")
 
-            assert score == 8
-
-    def test_score_updates_existing_plan(self):
-        fake = FakeLLM()
-        fake.set_response("score", {"score": 9, "reason": "结果优秀"})
-
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            _reset_and_init_storage(f.name)
-
-            plan = Plan(
-                nodes=[
-                    PlanNode(
-                        id="node_1",
-                        requirements="处理",
-                        input_fields=[
-                            InputField(
-                                source_type=InputFieldSourceType.ORIGINAL_MATERIAL,
-                                material_name="input",
-                                output_of_another_node=None,
-                            )
-                        ],
-                        output_names=None,
-                        is_final_node=True,
-                    )
-                ]
-            )
-            plan_json = plan.model_dump_json()
-            plan_id = PlanStorage.insert(task_template_id=1, plan_json=plan_json, first_score=8)
-
-            with create_mock_llm(fake):
-                evaluator = Evaluator(llm=fake.get_config(), formatter_llm=fake.get_config())
-
-                task = Task(
-                    materials=[Material(name="input", content="测试")],
-                    requirements="处理"
-                )
-
-                score = evaluator.score(task_template_id=1, plan=plan, task=task, output="结果")
-
-                assert score == 9
-
-                updated = PlanStorage.get_by_id(plan_id)
-                assert updated.exec_times == 2
-                assert updated.total_score == 17
-
-            os.unlink(f.name)
+            assert isinstance(response, LLMResponse)
+            assert response.content.score == 8
+            assert "良好" in response.content.reason
 
 
 class TestPlanAdvisor:

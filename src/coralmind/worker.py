@@ -4,7 +4,15 @@ from typing import Any, cast
 from pydantic import BaseModel, Field
 
 from .exceptions import PlanValidationError
-from .llm import LLMConfig, as_user_messages, build_assistant_message, build_user_message, call_llm
+from .llm import (
+    LLMConfig,
+    LLMResponse,
+    TokenCost,
+    as_user_messages,
+    build_assistant_message,
+    build_user_message,
+    call_llm,
+)
 from .model import InputFieldSourceType, Plan, PlanAdvice, PlanAdviceType, Task, TaskTemplate
 from .prompts import EVALUATION_STANDARD, PLAN_STANDARD
 from .storage import PlanStorage
@@ -23,7 +31,7 @@ class Planner:
         self.llm = llm
         self.formatter_llm = formatter_llm
 
-    def make_plan(self, task_template: TaskTemplate, advice: PlanAdvice | None) -> Plan:
+    def make_plan(self, task_template: TaskTemplate, advice: PlanAdvice | None) -> LLMResponse[Plan]:
         """
         Generate a plan
 
@@ -39,21 +47,25 @@ class Planner:
             advice: Optional plan advice containing historical good plans
 
         Returns:
-            Plan: Generated execution plan
+            LLMResponse[Plan]: Response containing generated plan and token cost
 
         Raises:
             PlanValidationError: If the generated plan does not meet specifications
         """
         if advice:
-            plan = self._generate_plan_with_advice(task_template, advice)
+            response = self._generate_plan_with_advice(task_template, advice)
         else:
-            plan = self._generate_plan_without_advice(task_template)
-        self._validate_plan(task_template, plan)
-        return plan
+            response = self._generate_plan_without_advice(task_template)
+        self._validate_plan(task_template, response.content)
+        return response
 
-    def _generate_plan_with_advice(self, task_template: TaskTemplate, advice: PlanAdvice) -> Plan:
+    def _generate_plan_with_advice(self, task_template: TaskTemplate, advice: PlanAdvice) -> LLMResponse[Plan]:
         if advice.type == PlanAdviceType.USE:
-            return advice.old_plan
+            return LLMResponse(
+                content=advice.old_plan,
+                token_cost=TokenCost(prompt=0, completion=0, total=0),
+                model="",
+            )
 
         messages = self._build_messages_for_generating_plan(task_template)
         old_plan = advice.old_plan.model_dump_json(indent=2, ensure_ascii=False)
@@ -61,12 +73,12 @@ class Planner:
         messages.append(old_plan_message)
 
         result = call_llm(self.llm, as_user_messages(messages), Plan, self.formatter_llm)
-        return cast(Plan, result)
+        return cast(LLMResponse[Plan], result)
 
-    def _generate_plan_without_advice(self, task_template: TaskTemplate) -> Plan:
+    def _generate_plan_without_advice(self, task_template: TaskTemplate) -> LLMResponse[Plan]:
         messages = self._build_messages_for_generating_plan(task_template)
         result = call_llm(self.llm, as_user_messages(messages), Plan, self.formatter_llm)
-        return cast(Plan, result)
+        return cast(LLMResponse[Plan], result)
 
     @staticmethod
     def _build_messages_for_generating_plan(task_template: TaskTemplate) -> list[str]:
@@ -190,7 +202,7 @@ class Executor:
             output_names: dict[str, str] | None,
             last_output: str | dict[str, str] | None = None,
             reject_reason: str | None = None
-    ) -> str | dict[str, str]:
+    ) -> LLMResponse[str] | LLMResponse[dict[str, str]]:
         """
         Execute task
 
@@ -202,8 +214,8 @@ class Executor:
             reject_reason: Reason for rejection last time (for redo scenario)
 
         Returns:
-            str: When output_names is None, return string result
-            dict[str, str]: When output_names is not None, return dictionary with specified fields
+            LLMResponse[str]: When output_names is None
+            LLMResponse[dict[str, str]]: When output_names is not None
         """
 
         m_names: list[str] = []
@@ -234,10 +246,10 @@ class Executor:
 
         if output_names:
             result = call_llm(self.llm, llm_messages, dict, self.formatter_llm)
-            return dict(result)
+            return result
 
         str_result = call_llm(self.llm, llm_messages, str, self.formatter_llm)
-        return str(str_result)
+        return str_result
 
 
 class ValidateResult(BaseModel):
@@ -263,7 +275,7 @@ class Validator:
             requirements: str,
             output_names: dict[str, str],
             output: str | dict[str, str]
-    ) -> ValidateResult:
+    ) -> LLMResponse[ValidateResult]:
         """
         Execute validation
 
@@ -278,12 +290,16 @@ class Validator:
             output: Actual output result
 
         Returns:
-            ValidateResult: Validation result, including whether passed and reason for failure
+            LLMResponse[ValidateResult]: Response containing validation result and token cost
         """
 
         quick_check_result = self._quick_check_output_type(output_names, output)
         if quick_check_result:
-            return quick_check_result
+            return LLMResponse(
+                content=quick_check_result,
+                token_cost=TokenCost(prompt=0, completion=0, total=0),
+                model="",
+            )
 
         messages: list[str] = []
 
@@ -324,7 +340,7 @@ Return in JSON format:
         messages.append(validation_prompt)
 
         result = call_llm(self.llm, as_user_messages(messages), ValidateResult, self.formatter_llm)
-        return cast(ValidateResult, result)
+        return cast(LLMResponse[ValidateResult], result)
 
     @staticmethod
     def _quick_check_output_type(
@@ -370,47 +386,16 @@ class Evaluator:
         self.llm = llm
         self.formatter_llm = formatter_llm
 
-    def score(self, task_template_id: int, plan: Plan, task: Task, output: str) -> int:
+    def score(self, task: Task, output: str) -> LLMResponse[EvaluationScore]:
         """
-        Score
-
-        Args:
-            task_template_id: Task template ID
-            plan: Execution plan
-            task: Task information
-            output: Execution output result
-
-        Returns:
-            int: Score result (integer from 0-10)
-        """
-        plan_json = plan.model_dump_json()
-
-        score_result = self._evaluate(task, output)
-        score = score_result.score
-
-        old_plans = PlanStorage.get_by_task_template_id(task_template_id)
-        for old_plan in old_plans:
-            if old_plan.plan_json == plan_json:
-                PlanStorage.update_score(old_plan.id, score)
-                return score
-        PlanStorage.upsert(task_template_id, plan_json, score)
-        return score
-
-    def _evaluate(self, task: Task, output: str) -> EvaluationScore:
-        """
-        Call LLM to evaluate task results
-
-        Evaluation flow:
-        1. Build prompt containing materials, task requirements, actual output and evaluation standard
-        2. Call LLM for scoring
-        3. Return structured evaluation result
+        Score task output
 
         Args:
             task: Task information containing materials and requirements
             output: Actual output of task execution
 
         Returns:
-            EvaluationScore: Contains score (0-10) and reason for the score
+            LLMResponse[EvaluationScore]: Response containing score and token cost
         """
         messages: list[str] = []
 
@@ -434,7 +419,7 @@ Please return the evaluation result in the following JSON format:
 ```""")
 
         result = call_llm(self.llm, as_user_messages(messages), EvaluationScore, self.formatter_llm)
-        return cast(EvaluationScore, result)
+        return cast(LLMResponse[EvaluationScore], result)
 
 
 class PlanAdvisor:
@@ -505,7 +490,7 @@ Strictly follow the JSONSchema below and return a JSON directly.
 ```
 """
         result = call_llm(self.llm, as_user_messages([req_msg, output_msg, prompt]), self.FormatResult)
-        format_result = cast(OutputFormater.FormatResult, result)
+        format_result = cast(OutputFormater.FormatResult, result.content)
         if format_result.need_reformat and format_result.new_content:
             return format_result.new_content
         return output

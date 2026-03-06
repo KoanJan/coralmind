@@ -4,6 +4,7 @@ from unittest.mock import patch
 from pydantic import BaseModel
 
 from coralmind import LLMConfig
+from coralmind.llm import LLMResponse, TokenCost
 
 
 class FakeLLM:
@@ -43,11 +44,17 @@ class FakeLLM:
             content = self._generate_default_response(output_type)
 
         if output_type is str:
-            return content
+            parsed_content = content
         elif output_type is dict:
-            return json.loads(content) if isinstance(content, str) else content
+            parsed_content = json.loads(content) if isinstance(content, str) else content
         else:
-            return output_type.model_validate_json(content)
+            parsed_content = output_type.model_validate_json(content)
+
+        return LLMResponse(
+            content=parsed_content,
+            token_cost=TokenCost(prompt=10, completion=20, total=30),
+            model="fake-model",
+        )
 
     def _extract_key(self, messages: list[dict], output_type: type) -> str:
         all_content = " ".join([m.get("content", "") for m in messages])

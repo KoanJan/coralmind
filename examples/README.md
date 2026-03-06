@@ -9,6 +9,7 @@ This directory contains usage examples for coralmind.
 | [01_basic_summary.py](01_basic_summary.py) | Basic | Single material text summarization task |
 | [02_multi_material_analysis.py](02_multi_material_analysis.py) | Intermediate | Multi-material comprehensive analysis task |
 | [03_custom_strategy.py](03_custom_strategy.py) | Advanced | Custom strategy parameter configuration |
+| [04_code_review.py](04_code_review.py) | Advanced | Multi-file code review with env-based LLM config |
 
 ## Running Examples
 
@@ -65,6 +66,29 @@ strategy = ThresholdStrategy(
 **Core Concepts**:
 - `ThresholdStrategy`: Plan selection strategy
 - Adjust thresholds to control reuse behavior
+
+### 04_code_review.py
+
+Complex task with environment-based LLM configuration. Ideal for testing and deployment.
+
+**Environment Variables**:
+```bash
+# Default LLM (required)
+export DEFAULT_MODEL_ID="gpt-4o-mini"
+export DEFAULT_BASE_URL="https://api.openai.com/v1"
+export DEFAULT_API_KEY="sk-xxx"
+export DEFAULT_MAX_TOKENS="8196"  # optional
+
+# Planner LLM (optional, uses default if not set)
+export PLANNER_MODEL_ID="gpt-4o"
+export PLANNER_BASE_URL="https://api.openai.com/v1"
+export PLANNER_API_KEY="sk-xxx"
+```
+
+**Core Concepts**:
+- Environment-based configuration for flexible deployment
+- Multi-material code analysis task
+- Separation of planner and executor LLMs
 
 ## Advanced Usage
 

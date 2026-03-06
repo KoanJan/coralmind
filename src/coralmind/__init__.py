@@ -1,4 +1,4 @@
-__version__ = "0.0.1"
+__version__ = "0.0.3"
 
 import logging
 
@@ -11,7 +11,7 @@ from .exceptions import (
     PlanValidationError,
     StorageError,
 )
-from .llm import LLMConfig
+from .llm import LLMConfig, LLMResponse, TokenCost
 from .model import Material, Task
 from .storage.connection import set_db_path
 from .strategy.advising import BasePlanStrategy, PlanAdviceAction, PlanRecord, PlanStrategyResult, ThresholdStrategy
@@ -19,7 +19,7 @@ from .strategy.advising import BasePlanStrategy, PlanAdviceAction, PlanRecord, P
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
-    "Agent", "Task", "Material", "LLMConfig", "set_db_path",
+    "Agent", "Task", "Material", "LLMConfig", "LLMResponse", "TokenCost", "set_db_path",
     "BasePlanStrategy", "ThresholdStrategy", "PlanRecord", "PlanStrategyResult", "PlanAdviceAction",
     "CoralMindError", "PlanValidationError", "ExecutionError", "StorageError", "ConfigurationError", "LLMError",
     "__version__",

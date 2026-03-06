@@ -1,9 +1,9 @@
 import logging
 
 from .exceptions import ExecutionError, PlanValidationError
-from .llm import LLMConfig
+from .llm import LLMConfig, LLMResponse, TokenCost
 from .model import InputFieldSourceType, Material, Plan, Task, TaskTemplate
-from .storage import TaskTemplateStorage, init_storage
+from .storage import PlanStorage, TaskTemplateStorage, init_storage
 from .strategy.advising import BasePlanStrategy, ThresholdStrategy
 from .worker import Evaluator, Executor, OutputFormater, PlanAdvisor, Planner, Validator
 
@@ -76,21 +76,69 @@ class Agent:
         task_template = self._extract_task_template(task)
         task_template_id = self._get_task_template_id(task_template)
         advice = self.plan_advisor.make_advice(task_template_id, self.advising_strategy)
-        plan = self.planner.make_plan(task_template, advice)
-        output = self._orchestrate(task.materials, plan)
-        self.evaluator.score(task_template_id, plan, task, output)
+
+        plan_response = self.planner.make_plan(task_template, advice)
+        plan = plan_response.content
+
+        orchestrate_response = self._orchestrate(task.materials, plan)
+        output = orchestrate_response.content
+
+        score_response = self.evaluator.score(task, output)
+
+        self._save_plan(task_template_id, plan, plan_response, orchestrate_response, score_response)
+
         output = self.output_formater.format_output(task.requirements, output)
         return output
 
-    def _orchestrate(self, materials: list[Material], plan: Plan) -> str:
+    @staticmethod
+    def _save_plan(
+            task_template_id: int,
+            plan: Plan,
+            plan_response: LLMResponse[Plan],
+            orchestrate_response: LLMResponse[str],
+            score_response: LLMResponse,
+    ) -> None:
+        """
+        Save plan with aggregated token cost and score to database
+        """
+        plan_json = plan.model_dump_json()
+        score = score_response.content.score
+
+        total_token_cost = (
+            plan_response.token_cost
+            + orchestrate_response.token_cost
+            + score_response.token_cost
+        )
+
+        old_plans = PlanStorage.get_by_task_template_id(task_template_id)
+        for old_plan in old_plans:
+            if old_plan.plan_json == plan_json:
+                PlanStorage.update_score(
+                    old_plan.id, score,
+                    total_token_cost.prompt, total_token_cost.completion, total_token_cost.total
+                )
+                return
+
+        PlanStorage.upsert(
+            task_template_id, plan_json, score,
+            total_token_cost.prompt, total_token_cost.completion, total_token_cost.total
+        )
+
+    def _orchestrate(self, materials: list[Material], plan: Plan) -> LLMResponse[str]:
         """
         Orchestrate the entire workflow according to the plan
+
+        Returns:
+            LLMResponse[str]: Response containing final output and accumulated token cost
         """
         materials_dict = {m.name: m.content for m in materials}
         intermediate_data: dict[str, str] = {}
         cur_output: str | dict[str, str] | None = None
+        total_token_cost = TokenCost(prompt=0, completion=0, total=0)
+
         if (not plan.nodes) or len(plan.nodes) == 0:
             raise PlanValidationError("Plan contains 0 nodes")
+
         for plan_node in plan.nodes:
             input_materials: dict[str, str] = {}
             for input_field in plan_node.input_fields:
@@ -104,18 +152,25 @@ class Agent:
                     input_materials[key] = intermediate_data[key]
             output_names = plan_node.output_names or {}
             for _ in range(self.max_retry_times_per_node):
-                cur_output = self.executor.execute(input_materials, plan_node.requirements, output_names)
+                exec_response = self.executor.execute(input_materials, plan_node.requirements, output_names)
+                total_token_cost = total_token_cost + exec_response.token_cost
+                cur_output = exec_response.content
+
                 if output_names:
-                    validate_result = self.validator.validate(
+                    validate_response = self.validator.validate(
                         input_materials, plan_node.requirements, output_names, cur_output
                     )
-                    if validate_result.passed:
+                    total_token_cost = total_token_cost + validate_response.token_cost
+
+                    if validate_response.content.passed:
                         break
                     else:
-                        cur_output = self.executor.execute(
+                        exec_response = self.executor.execute(
                             input_materials, plan_node.requirements, output_names,
-                            last_output=cur_output, reject_reason=validate_result.reason
+                            last_output=cur_output, reject_reason=validate_response.content.reason
                         )
+                        total_token_cost = total_token_cost + exec_response.token_cost
+                        cur_output = exec_response.content
                 else:
                     break
             if isinstance(cur_output, dict):
@@ -128,4 +183,4 @@ class Agent:
                 "This usually indicates the final node did not produce the expected output format."
             )
 
-        return cur_output
+        return LLMResponse(content=cur_output, token_cost=total_token_cost, model="")
