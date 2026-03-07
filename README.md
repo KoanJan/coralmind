@@ -85,6 +85,7 @@ flowchart LR
 - **Result Validation** - Dual guarantee with rule-based and semantic validation
 - **Closed-Loop Feedback** - Execution result scoring drives plan optimization
 - **Persistent Storage** - Task templates and execution plans automatically saved for cross-session reuse
+- **JSON Schema Output** - Structured output with comprehensive JSON Schema support (enum, const, anyOf, oneOf, allOf, constraints, etc.)
 
 ## Installation
 
@@ -422,7 +423,7 @@ flowchart TB
         PL --> EX[Executor]
         EX --> V[Validator]
         V --> EV[Evaluator]
-        EV --> OF[OutputFormater]
+        EV --> OF[OutputFormatter]
         
         EV -->|Score| DB[(History)]
         DB -->|Reuse Advice| PA
@@ -451,6 +452,10 @@ pytest
 ## Contributing
 
 Contributions are welcome! See [Contributing Guide](CONTRIBUTING.md).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and updates.
 
 ## License
 

@@ -84,7 +84,8 @@ flowchart LR
 - **智能规划** - 自动分解复杂任务，生成多节点执行计划
 - **结果验证** - 规则校验 + 语义校验双重保障
 - **闭环反馈** - 执行结果评分，驱动计划优化
-- **持久存储** - 任务模板与执行计划自动保存，支持跨会话复用
+- **持久化存储** - 任务模板和执行计划自动保存，跨会话复用
+- **JSON Schema 输出** - 结构化输出，全面支持 JSON Schema（enum、const、anyOf、oneOf、allOf、约束等）
 
 ## 安装
 
@@ -422,7 +423,7 @@ flowchart TB
         PL --> EX[Executor<br/>执行器]
         EX --> V[Validator<br/>验证器]
         V --> EV[Evaluator<br/>评估器]
-        EV --> OF[OutputFormater<br/>格式化器]
+        EV --> OF[OutputFormatter<br/>格式化器]
         
         EV -->|评分| DB[(历史记录)]
         DB -->|复用建议| PA
@@ -451,6 +452,10 @@ pytest
 ## 贡献
 
 欢迎贡献代码！请查看 [Contributing Guide](CONTRIBUTING.md)。
+
+## 更新日志
+
+查看 [CHANGELOG.md](CHANGELOG.md) 了解版本历史和更新内容。
 
 ## 许可证
 

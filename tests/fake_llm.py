@@ -17,6 +17,7 @@ class FakeLLM:
     def __init__(self, responses: dict | None = None):
         self.responses = responses or {}
         self.call_history: list[dict] = []
+        self._call_count: dict[str, int] = {}
 
     def get_config(self) -> LLMConfig:
         return LLMConfig(
@@ -33,22 +34,42 @@ class FakeLLM:
         else:
             self.responses[key] = response
 
+    def set_responses(self, key: str, responses: list[str | dict | BaseModel]):
+        """Set multiple responses for the same key, returned in order"""
+        self.responses[f"{key}_list"] = [
+            r.model_dump_json() if isinstance(r, BaseModel) else
+            json.dumps(r) if isinstance(r, dict) else r
+            for r in responses
+        ]
+        self._call_count[key] = 0
+
     def mock_call(self, llm, messages: list[dict], output_type: type, formatter_llm=None):
         self.call_history.append({"messages": messages, "output_type": output_type})
 
         response_key = self._extract_key(messages, output_type)
 
-        if response_key in self.responses:
+        list_key = f"{response_key}_list"
+        if list_key in self.responses:
+            idx = self._call_count.get(response_key, 0)
+            if idx < len(self.responses[list_key]):
+                content = self.responses[list_key][idx]
+                self._call_count[response_key] = idx + 1
+            else:
+                content = self._generate_default_response(output_type)
+        elif response_key in self.responses:
             content = self.responses[response_key]
         else:
             content = self._generate_default_response(output_type)
 
         if output_type is str:
-            parsed_content = content
+            parsed_content = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
         elif output_type is dict:
             parsed_content = json.loads(content) if isinstance(content, str) else content
         else:
-            parsed_content = output_type.model_validate_json(content)
+            if isinstance(content, str):
+                parsed_content = output_type.model_validate_json(content)
+            else:
+                parsed_content = output_type.model_validate(content)
 
         return LLMResponse(
             content=parsed_content,
@@ -67,8 +88,27 @@ class FakeLLM:
                 return "validate"
             elif 'Evaluation' in type_name or 'Score' in type_name:
                 return "score"
-            elif 'Format' in type_name:
+
+        if output_type is dict:
+            return "execute"
+        elif output_type is str:
+            if "Execution Plan Standard" in all_content or "Create a detailed execution plan" in all_content:
+                return "plan"
+            if "Validation Task" in all_content or "validate whether" in all_content:
+                return "validate"
+            if "Evaluation Standard" in all_content or "evaluation result" in all_content:
+                return "score"
+            if "Return a JSON dictionary" in all_content or "Return the final result directly" in all_content:
+                return "execute"
+            if "Original Task Output Requirements" in all_content:
                 return "format"
+            if "格式化" in all_content or "format" in all_content.lower():
+                return "format"
+            if "校验" in all_content or "validate" in all_content.lower():
+                return "validate"
+            if "评分" in all_content or "score" in all_content.lower():
+                return "score"
+            return "execute"
 
         if "执行计划" in all_content or "plan" in all_content.lower():
             return "plan"
@@ -76,8 +116,6 @@ class FakeLLM:
             return "validate"
         elif "评分" in all_content or "score" in all_content.lower():
             return "score"
-        elif "格式化" in all_content or "format" in all_content.lower():
-            return "format"
         else:
             return "execute"
 
@@ -114,10 +152,10 @@ def create_mock_llm(fake_llm: FakeLLM):
             agent = Agent(default_llm=fake.get_config())
             result = agent.run(task)
     """
-    def mock_call(llm, messages, output_type, formatter_llm=None):
-        return fake_llm.mock_call(llm, messages, output_type, formatter_llm)
+    def mock_raw_call(llm, messages):
+        return fake_llm.mock_call(llm, messages, str)
 
-    return patch('coralmind.worker.call_llm', side_effect=mock_call)
+    return patch('coralmind.llm._call_llm', side_effect=mock_raw_call)
 
 
 FakeLLMInstance = LLMConfig(

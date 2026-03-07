@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, cast
 
 from pydantic import BaseModel, Field
@@ -13,19 +14,22 @@ from .llm import (
     build_user_message,
     call_llm,
 )
-from .model import InputFieldSourceType, Plan, PlanAdvice, PlanAdviceType, Task, TaskTemplate
+from .model import InputFieldSourceType, OutputFormat, Plan, PlanAdvice, PlanAdviceType, Task, TaskTemplate
+from .output_format import json_schema_to_pydantic
 from .prompts import EVALUATION_STANDARD, PLAN_STANDARD
 from .storage import PlanStorage
 from .strategy.advising import BasePlanStrategy, PlanAdviceAction, PlanRecord
 
 __all__ = ["Plan", "PlanAdvice", "PlanAdviceType", "PlanAdvisor", "Planner",
-           "Executor", "Validator", "ValidateResult", "Evaluator", "OutputFormater"]
+           "Executor", "Validator", "ValidateResult", "Evaluator", "OutputFormatter"]
 
 
 class Planner:
     """
     Plan Maker
     """
+
+    logger = logging.getLogger(__name__)
 
     def __init__(self, llm: LLMConfig, formatter_llm: LLMConfig):
         self.llm = llm
@@ -82,29 +86,45 @@ class Planner:
 
     @staticmethod
     def _build_messages_for_generating_plan(task_template: TaskTemplate) -> list[str]:
-        meterials_names = "\n".join([f"- {name}" for name in task_template.material_names])
+        materials_names = "\n".join([f"- {name}" for name in task_template.material_names])
+
+        output_format_section = ""
+        if task_template.output_format is not None:
+            output_format_section = f"""
+3. Final Output Format (JSON Schema)
+The final output will be formatted to match this schema after all nodes complete:
+```json
+{task_template.output_format.json_schema}
+```
+
+**CRITICAL CONSTRAINT**: This schema is for the FINAL output only, NOT for intermediate nodes.
+- Each intermediate node must output `dict[str, str]` where values are plain strings
+- Do NOT create nodes that output JSON arrays or nested objects
+- The final node should output a single string containing all content
+- JSON formatting happens AFTER execution, not during
+"""
 
         message = f"""
-# Task Description
+# Task Input
 
-1. User's Original Requirements
+1. Materials
+{materials_names}
+
+2. Requirements
 ```text
 {task_template.requirements}
 ```
+{output_format_section}
+# Your Task
 
-2. List of Material Names Provided by User
-{meterials_names}
+Create a detailed execution plan based on the Task Input above. Do not directly complete the user's requirements.
 
-
-3. Your Task
-Do not directly complete the user's original requirements. Instead, create a detailed execution plan for them.
-
-4. Execution Plan Standard
+# Execution Plan Standard
 ```text
 {PLAN_STANDARD}
 ```
 
-5. Return Format: JSON (strictly follow the JSONSchema below)
+# Return Format (JSON Schema)
 ```json
 {json.dumps(Plan.model_json_schema(), indent=2, ensure_ascii=False)}
 ```
@@ -138,9 +158,9 @@ Do not directly complete the user's original requirements. Instead, create a det
         if final_node.output_names and len(final_node.output_names) > 0:
             raise PlanValidationError("The final node cannot have output_names", node_id=final_node.id)
 
-        node_indicies = {node.id: i for i, node in enumerate(plan.nodes)}
-        if len(node_indicies) != len(plan.nodes):
-            duplicate_ids = [node.id for node in plan.nodes if list(node_indicies.keys()).count(node.id) > 1]
+        node_indices = {node.id: i for i, node in enumerate(plan.nodes)}
+        if len(node_indices) != len(plan.nodes):
+            duplicate_ids = [node.id for node in plan.nodes if list(node_indices.keys()).count(node.id) > 1]
             raise PlanValidationError(f"Duplicate node_id found: {list(set(duplicate_ids))}")
 
         output_names_dict: dict[str, list[str]] = {
@@ -166,7 +186,7 @@ Do not directly complete the user's original requirements. Instead, create a det
                     if dep is None:
                         raise PlanValidationError("output_of_another_node is required", node_id=node.id)
                     dep_node_id = dep.node_id
-                    dep_node_idx = node_indicies.get(dep_node_id)
+                    dep_node_idx = node_indices.get(dep_node_id)
                     if dep_node_idx is None:
                         raise PlanValidationError(
                             f"Dependent node '{dep_node_id}' does not exist",
@@ -190,6 +210,8 @@ class Executor:
     """
     Step Executor
     """
+
+    logger = logging.getLogger(__name__)
 
     def __init__(self, llm: LLMConfig, formatter_llm: LLMConfig):
         self.llm = llm
@@ -229,7 +251,12 @@ class Executor:
         if output_names:
             output_name_descriptions = [f"`{k}` (definition: {v})" for k, v in output_names.items()]
             output_name_descriptions_text = ", ".join(output_name_descriptions)
-            output_format_requirement = f"Return a JSON dictionary (all keys and values must be string type) containing the following fields: {output_name_descriptions_text}."
+            output_format_requirement = f"""Return a JSON dictionary containing the following fields: {output_name_descriptions_text}.
+
+**CRITICAL**: All values in the dictionary MUST be strings (str type), NOT arrays, objects, or nested structures.
+- If you need to return multiple items, format them as a single string (e.g., newline-separated or JSON stringified)
+- Example of CORRECT format: {{"items": "item1\\nitem2\\nitem3"}}
+- Example of WRONG format: {{"items": ["item1", "item2", "item3"]}}"""
             messages.append(output_format_requirement)
         else:
             output_format_requirement = "Return the final result directly. Do not include any content that is not part of the deliverable itself."
@@ -464,33 +491,45 @@ class PlanAdvisor:
             )
 
 
-class OutputFormater:
+class OutputFormatter:
     """Final Output Formatter"""
-
-    class FormatResult(BaseModel):
-        need_reformat: bool = Field(description="Does the original output need adjustment?")
-        new_content: str | None = Field(default=None, description="Adjusted complete output content")
 
     def __init__(self, llm: LLMConfig):
         self.llm = llm
 
-    def format_output(self, requirements: str, output: str) -> str:
-        """Identify the expected output subject from requirements and adjust the output accordingly"""
-        req_msg = f"# Original Task Output Requirements\n\n{requirements}"
-        output_msg = f"# Original Task Output Result\n\n```text\n{output}\n```\n"
+    def format_output(self, requirements: str, output: str, output_format: OutputFormat | None = None) -> str:
+        """
+        Format output according to optional format specification.
+
+        Args:
+            requirements: Task output requirements (unused, kept for API compatibility)
+            output: Raw output from orchestration
+            output_format: Optional format specification (e.g., JSON schema)
+
+        Returns:
+            Formatted output string, or original output if no format specified
+        """
+        if output_format is not None:
+            return self._format_to_schema(output, output_format)
+        return output
+
+    def _format_to_schema(self, output: str, output_format: OutputFormat) -> str:
+        """Format output to match the specified JSON schema"""
+        output_msg = f"# Original Output\n\n```\n{output}\n```\n"
         prompt = f"""
-The above are "Original Task Output Requirements" and "Original Task Output Result" respectively.
+The above is the original output content.
+
 # Your Task
-Identify the expected output format from "Original Task Output Requirements" and ensure "Original Task Output Result" does not contain any non-expected format output or irrelevant content. If it does, adjust it.
+Transform the original output into a valid JSON that strictly follows the JSONSchema below. Preserve all meaningful information from the original output.
+
+# JSONSchema
+```json
+{output_format.json_schema}
+```
 
 # Return Format
-Strictly follow the JSONSchema below and return a JSON directly.
-```
-{self.FormatResult.model_json_schema()}
-```
+Return ONLY the JSON object, without any markdown formatting, code blocks, or additional text.
 """
-        result = call_llm(self.llm, as_user_messages([req_msg, output_msg, prompt]), self.FormatResult)
-        format_result = cast(OutputFormater.FormatResult, result.content)
-        if format_result.need_reformat and format_result.new_content:
-            return format_result.new_content
-        return output
+        dynamic_model = json_schema_to_pydantic(output_format.json_schema)
+        result = call_llm(self.llm, as_user_messages([output_msg, prompt]), dynamic_model)
+        return result.content.model_dump_json(exclude_none=True)

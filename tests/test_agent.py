@@ -92,10 +92,13 @@ def test_agent_multi_node_task():
             )
         ]
     ))
-    fake.set_response("execute", {"keywords": "人工智能, 机器学习, 深度学习"})
+    fake.set_responses("execute", [
+        {"keywords": "人工智能, 机器学习, 深度学习"},
+        "这是一篇关于人工智能、机器学习和深度学习的文章摘要。",
+    ])
     fake.set_response("validate", {"passed": True, "reason": ""})
     fake.set_response("score", {"score": 9, "reason": "关键词提取准确"})
-    fake.set_response("format", {"need_reformat": False, "new_content": None})
+    fake.set_response("format", {"need_reformat": False, "new_content": ""})
 
     with create_mock_llm(fake):
         agent = Agent(default_llm=fake.get_config())

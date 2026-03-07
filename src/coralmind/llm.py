@@ -137,59 +137,135 @@ def _quick_fix_object_json(json_str: str) -> str:
     return json_str[left_index: right_index + 1] if (-1 < left_index < right_index) else json_str
 
 
-def _to_dict(llm: LLMConfig, json_string: str) -> dict[str, str]:
-    logger.debug("_to_dict called")
-    try:
-        obj = json.loads(json_string)
-        if not isinstance(obj, dict):
-            raise LLMError(
-                f"Expected JSON object (dict), got {type(obj).__name__}. "
-                f"LLM returned incorrect JSON structure.",
-                model=llm.model_id
-            )
-        if not _is_dict_str_str(obj):
-            raise LLMError(
-                "Expected dict[str, str], but some keys or values are not strings. "
-                "LLM returned incorrect JSON structure.",
-                model=llm.model_id
-            )
-        return cast(dict[str, str], obj)
-    except LLMError:
-        raise
-    except Exception as e:
-        logger.debug(f"JSON parsing failed, attempting LLM fix: {e}")
-        return _to_dict_by_llm(llm, json_string)
+def _to_dict(llm: LLMConfig, json_string: str, max_retries: int = 2) -> dict[str, str]:
+    """
+    Convert JSON string to dict[str, str] with retry mechanism.
+
+    When structure is incorrect (e.g., nested objects, arrays),
+    use LLM to fix it with detailed error information.
+    """
+    current_json = json_string
+
+    for attempt in range(max_retries + 1):
+        try:
+            obj = json.loads(current_json)
+
+            if not isinstance(obj, dict):
+                error_msg = f"Expected JSON object (dict), got {type(obj).__name__}. The output must be a flat dictionary with string values only."
+                if attempt < max_retries:
+                    logger.debug(f"Structure error (attempt {attempt + 1}): {error_msg}")
+                    current_json = _fix_dict_structure_by_llm(llm, current_json, error_msg)
+                    continue
+                raise LLMError(error_msg, model=llm.model_id)
+
+            if not _is_dict_str_str(obj):
+                non_str_items = [(k, type(v).__name__) for k, v in obj.items() if not isinstance(v, str)]
+                error_msg = f"Expected dict[str, str], but some values are not strings: {non_str_items}. All values must be plain strings, not arrays or nested objects."
+                if attempt < max_retries:
+                    logger.debug(f"Structure error (attempt {attempt + 1}): {error_msg}")
+                    current_json = _fix_dict_structure_by_llm(llm, current_json, error_msg)
+                    continue
+                raise LLMError(error_msg, model=llm.model_id)
+
+            return cast(dict[str, str], obj)
+
+        except json.JSONDecodeError as e:
+            if attempt < max_retries:
+                logger.debug(f"JSON parse error (attempt {attempt + 1}): {e}")
+                current_json = _fix_dict_structure_by_llm(llm, current_json, f"JSON parse error: {e}")
+                continue
+            raise LLMError(f"Failed to parse JSON after {max_retries} retries: {e}", model=llm.model_id) from e
+
+    raise LLMError(f"Failed to get valid dict[str, str] after {max_retries} retries", model=llm.model_id)
 
 
-def _to_dict_by_llm(llm: LLMConfig, json_string: str) -> dict[str, str]:
-    """Use LLM to intelligently fix JSON string errors"""
-    prompt = f"{json_string}\n\nThe JSON above has formatting issues. Fix it and return a valid JSON directly (the outermost layer must be a dictionary, not a list). Do not include any non-JSON decorations such as ``` symbols or other language descriptions."
-    fixed_json_string = _call_llm(llm, [build_user_message(prompt)]).content
-    obj = json.loads(fixed_json_string)
-    if not _is_dict_str_str(obj):
-        raise LLMError(
-            "Expected dict[str, str], but some keys or values are not strings. "
-            "LLM returned incorrect JSON structure.",
-            model=llm.model_id
-        )
-    return cast(dict[str, str], obj)
+def _fix_dict_structure_by_llm(llm: LLMConfig, json_string: str, error_msg: str) -> str:
+    """
+    Use LLM to fix JSON structure errors for dict[str, str] conversion.
+
+    Args:
+        llm: LLM configuration
+        json_string: The problematic JSON string
+        error_msg: Description of the error
+
+    Returns:
+        Fixed JSON string that should be a dict with string values
+    """
+    prompt = f"""The following JSON has a structure error:
+
+```json
+{json_string}
+```
+
+Error: {error_msg}
+
+Please fix the JSON and return ONLY the corrected JSON. Requirements:
+1. The output must be a JSON object (dict), not an array
+2. All values must be strings (str), not arrays or nested objects
+3. If you need to represent multiple items, use newline-separated strings or JSON-stringified strings
+4. Do not include any markdown formatting or explanations, just the raw JSON"""
+
+    fixed_json = _call_llm(llm, [build_user_message(prompt)]).content
+    return _quick_fix_object_json(fixed_json)
 
 
 def _is_dict_str_str(d: dict) -> bool:
     return all(isinstance(k, str) and isinstance(v, str) for k, v in d.items())
 
 
-def _to_model(llm: LLMConfig, json_string: str, model_type: type[BaseModel]) -> BaseModel:
-    try:
-        return model_type.model_validate_json(json_string)
-    except Exception as e:
-        logger.debug(f"JSON parsing failed, attempting LLM fix: {e}")
-        return _to_model_by_llm(llm, json_string, model_type)
+def _to_model(llm: LLMConfig, json_string: str, model_type: type[BaseModel], max_retries: int = 2) -> BaseModel:
+    """
+    Convert JSON string to Pydantic model with retry mechanism.
+
+    When validation fails, use LLM to fix it with detailed error information.
+    """
+    current_json = json_string
+
+    for attempt in range(max_retries + 1):
+        try:
+            return model_type.model_validate_json(current_json)
+        except Exception as e:
+            if attempt < max_retries:
+                logger.debug(f"Model validation error (attempt {attempt + 1}): {e}")
+                current_json = _fix_model_json_by_llm(llm, current_json, model_type, str(e))
+                continue
+            raise LLMError(f"Failed to validate {model_type.__name__} after {max_retries} retries: {e}", model=llm.model_id) from e
+
+    raise LLMError(f"Failed to get valid {model_type.__name__} after {max_retries} retries", model=llm.model_id)
 
 
-def _to_model_by_llm(llm: LLMConfig, json_string: str, model_type: type[BaseModel]) -> BaseModel:
-    """Use LLM to intelligently fix JSON string errors"""
+def _fix_model_json_by_llm(llm: LLMConfig, json_string: str, model_type: type[BaseModel], error_msg: str) -> str:
+    """
+    Use LLM to fix JSON structure errors for Pydantic model validation.
+
+    Args:
+        llm: LLM configuration
+        json_string: The problematic JSON string
+        model_type: Target Pydantic model type
+        error_msg: Description of the validation error
+
+    Returns:
+        Fixed JSON string that should conform to the model schema
+    """
     schema = model_type.model_json_schema()
-    prompt = f"{json_string}\n\nThe JSON above has formatting issues. Fix it and return a valid JSON directly, strictly following this JSONSchema: ```json_schema\n{schema}\n```\n\nDo not include any non-JSON decorations such as ``` symbols or other language descriptions."
-    fixed_json_string = _call_llm(llm, [build_user_message(prompt)]).content
-    return model_type.model_validate_json(fixed_json_string)
+    prompt = f"""The following JSON has validation errors:
+
+```json
+{json_string}
+```
+
+Error: {error_msg}
+
+Target schema:
+```json_schema
+{schema}
+```
+
+Please fix the JSON and return ONLY the corrected JSON. Requirements:
+1. The output must conform to the target schema exactly
+2. All required fields must be present
+3. Field types must match the schema definitions
+4. Do not include any markdown formatting or explanations, just the raw JSON"""
+
+    fixed_json = _call_llm(llm, [build_user_message(prompt)]).content
+    return _quick_fix_object_json(fixed_json)

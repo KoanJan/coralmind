@@ -9,7 +9,7 @@ from coralmind.llm import LLMResponse
 from coralmind.model import InputField, InputFieldSourceType, Plan, PlanAdvice, PlanAdviceType, PlanNode, TaskTemplate
 from coralmind.storage import init_storage, set_db_path
 from coralmind.storage.plan import PlanStorage
-from coralmind.worker import Evaluator, Executor, OutputFormater, PlanAdvisor, Planner, Validator
+from coralmind.worker import Evaluator, Executor, OutputFormatter, PlanAdvisor, Planner, Validator
 
 
 def _reset_and_init_storage(db_path: str):
@@ -141,7 +141,7 @@ class TestExecutor:
 
     def test_execute_dict_output(self):
         fake = FakeLLM()
-        fake.set_response("execute", {"keywords": "AI, ML, DL"})
+        fake.set_response("execute", '{"keywords": "AI, ML, DL"}')
 
         with create_mock_llm(fake):
             executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
@@ -311,14 +311,13 @@ class TestPlanAdvisor:
         assert advice.type == PlanAdviceType.USE
 
 
-class TestOutputFormater:
+class TestOutputFormatter:
 
-    def test_format_output_no_change(self):
+    def test_format_output_without_format(self):
         fake = FakeLLM()
-        fake.set_response("format", {"need_reformat": False, "new_content": None})
 
         with create_mock_llm(fake):
-            formatter = OutputFormater(llm=fake.get_config())
+            formatter = OutputFormatter(llm=fake.get_config())
 
             result = formatter.format_output(
                 requirements="生成摘要",
@@ -327,19 +326,25 @@ class TestOutputFormater:
 
             assert result == "这是摘要内容"
 
-    def test_format_output_with_change(self):
+    def test_format_output_with_format(self):
         fake = FakeLLM()
-        fake.set_response("format", {
-            "need_reformat": True,
-            "new_content": "纯净的摘要内容"
-        })
+        fake.set_response("format", '{"summary": "这是摘要内容"}')
 
         with create_mock_llm(fake):
-            formatter = OutputFormater(llm=fake.get_config())
+            formatter = OutputFormatter(llm=fake.get_config())
+
+            from coralmind.model.task import JsonOutputFormat
+
+            output_format = JsonOutputFormat(
+                json_schema='{"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}'
+            )
 
             result = formatter.format_output(
                 requirements="生成摘要",
-                output="这是摘要内容，还有一些无关信息"
+                output="这是摘要内容",
+                output_format=output_format
             )
 
-            assert result == "纯净的摘要内容"
+            import json
+            parsed = json.loads(result)
+            assert parsed == {"summary": "这是摘要内容"}

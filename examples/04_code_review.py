@@ -1,7 +1,7 @@
 """
-高级示例：多材料综合分析任务
+高级示例：多材料综合分析任务（带输出格式约束）
 
-展示一个复杂任务：分析多个代码文件，生成综合审查报告。
+展示一个复杂任务：分析多个代码文件，生成符合指定 JSON Schema 的结构化审查报告。
 通过环境变量配置 LLM，方便测试和部署。
 
 运行方式：
@@ -16,17 +16,230 @@
     DEFAULT_MODEL_ID=gpt-4o-mini DEFAULT_BASE_URL=... DEFAULT_API_KEY=... python 04_code_review.py
 """
 
+import json
 import logging
 import os
 from pathlib import Path
 
-from coralmind import Agent, LLMConfig, Material, Task
+from coralmind import Agent, LLMConfig, Material, OutputFormat, Task
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logging.getLogger("coralmind").setLevel(logging.DEBUG)
+
+
+COMPLEX_JSON_SCHEMA = '''
+{
+    "$defs": {
+        "Severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"]
+        },
+        "IssueCategory": {
+            "type": "string",
+            "enum": ["security", "performance", "maintainability", "design", "error_handling"]
+        },
+        "FileLocation": {
+            "type": "object",
+            "properties": {
+                "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                },
+                "line_start": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "line_end": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            },
+            "required": ["file", "line_start"],
+            "additionalProperties": false
+        },
+        "SecurityIssue": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "pattern": "^SEC-[0-9]{3}$"
+                },
+                "location": {
+                    "$ref": "#/$defs/FileLocation"
+                },
+                "severity": {
+                    "$ref": "#/$defs/Severity"
+                },
+                "vulnerability_type": {
+                    "type": "string",
+                    "enum": ["sql_injection", "xss", "csrf", "auth_bypass", "data_exposure", "other"]
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 1000
+                },
+                "cwe_reference": {
+                    "anyOf": [
+                        {"type": "string", "pattern": "^CWE-[0-9]+$"},
+                        {"type": "null"}
+                    ]
+                },
+                "fix_suggestion": {
+                    "type": "string",
+                    "minLength": 20
+                },
+                "references": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "minItems": 0,
+                    "maxItems": 5
+                }
+            },
+            "required": ["id", "location", "severity", "vulnerability_type", "description", "fix_suggestion"],
+            "additionalProperties": false
+        },
+        "QualityIssue": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "pattern": "^QTY-[0-9]{3}$"
+                },
+                "location": {
+                    "$ref": "#/$defs/FileLocation"
+                },
+                "category": {
+                    "$ref": "#/$defs/IssueCategory"
+                },
+                "severity": {
+                    "$ref": "#/$defs/Severity"
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 1000
+                },
+                "fix_suggestion": {
+                    "type": "string",
+                    "minLength": 20
+                },
+                "estimated_effort": {
+                    "type": "string",
+                    "enum": ["trivial", "small", "medium", "large"]
+                }
+            },
+            "required": ["id", "location", "category", "severity", "description", "fix_suggestion"],
+            "additionalProperties": false
+        },
+        "Metrics": {
+            "type": "object",
+            "properties": {
+                "total_files_reviewed": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                },
+                "total_issues_found": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "security_score": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                },
+                "quality_score": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                },
+                "lines_analyzed": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": ["total_files_reviewed", "total_issues_found", "security_score", "quality_score"],
+            "additionalProperties": false
+        }
+    },
+    "type": "object",
+    "properties": {
+        "report_version": {
+            "const": "2.0"
+        },
+        "generated_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "security_issues": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SecurityIssue"
+            },
+            "minItems": 0,
+            "maxItems": 50
+        },
+        "quality_issues": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/QualityIssue"
+            },
+            "minItems": 0,
+            "maxItems": 50
+        },
+        "metrics": {
+            "$ref": "#/$defs/Metrics"
+        },
+        "priority_order": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "pattern": "^(SEC|QTY)-[0-9]{3}$"
+            },
+            "minItems": 0
+        },
+        "summary": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 2000
+        },
+        "recommendations": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "minLength": 10
+            },
+            "minItems": 1,
+            "maxItems": 10
+        },
+        "contact_email": {
+            "anyOf": [
+                {"type": "string", "format": "email"},
+                {"type": "null"}
+            ]
+        }
+    },
+    "required": [
+        "report_version",
+        "generated_at",
+        "security_issues",
+        "quality_issues",
+        "metrics",
+        "priority_order",
+        "summary",
+        "recommendations"
+    ],
+    "additionalProperties": false
+}
+'''
 
 
 def load_env() -> None:
@@ -154,6 +367,8 @@ class PaymentService:
         return response.json()
 '''
 
+    json_schema = COMPLEX_JSON_SCHEMA
+
     task = Task(
         materials=[
             Material(name="user_service.py", content=user_service_code),
@@ -161,29 +376,41 @@ class PaymentService:
             Material(name="payment_service.py", content=payment_service_code),
         ],
         requirements="""
-请对提供的三个服务类进行全面的代码审查，生成结构化报告，包含以下部分：
+请对提供的三个服务类进行全面的代码审查，重点关注：
 
 1. **安全问题**：识别所有安全漏洞（如SQL注入、敏感信息暴露等），按严重程度排序
 
 2. **代码质量**：分析代码设计问题（如职责划分、错误处理、代码重复等）
 
-3. **改进建议**：针对每个问题提供具体的修复方案和示例代码
+3. **改进建议**：针对每个问题提供具体的修复方案
 
-4. **优先级排序**：将所有问题按修复优先级（高/中/低）分类
-
-输出格式要求：
-- 使用 Markdown 格式
-- 每个问题需标注所在文件和行号
-- 改进建议需包含修复前后的代码对比
-"""
+4. **优先级排序**：将所有问题按修复优先级分类
+""",
+        output_format=OutputFormat(json_schema=json_schema),
     )
 
     result = agent.run(task)
 
     print("=" * 60)
-    print("代码审查报告")
+    print("代码审查报告 (JSON)")
     print("=" * 60)
     print(result)
+
+    print("\n" + "=" * 60)
+    print("验证输出格式")
+    print("=" * 60)
+    try:
+        parsed_data = json.loads(result)
+        print("✅ 输出符合 JSON Schema")
+        print(f"  - 报告版本: {parsed_data.get('report_version')}")
+        print(f"  - 安全问题数量: {len(parsed_data.get('security_issues', []))}")
+        print(f"  - 代码质量问题数量: {len(parsed_data.get('quality_issues', []))}")
+        print(f"  - 安全评分: {parsed_data.get('metrics', {}).get('security_score')}")
+        print(f"  - 质量评分: {parsed_data.get('metrics', {}).get('quality_score')}")
+        print(f"  - 摘要: {parsed_data.get('summary', '')[:100]}...")
+        print(f"  - 建议数量: {len(parsed_data.get('recommendations', []))}")
+    except Exception as e:
+        print(f"❌ 输出不符合 JSON Schema: {e}")
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from .llm import LLMConfig, LLMResponse, TokenCost
 from .model import InputFieldSourceType, Material, Plan, Task, TaskTemplate
 from .storage import PlanStorage, TaskTemplateStorage, init_storage
 from .strategy.advising import BasePlanStrategy, ThresholdStrategy
-from .worker import Evaluator, Executor, OutputFormater, PlanAdvisor, Planner, Validator
+from .worker import Evaluator, Executor, OutputFormatter, PlanAdvisor, Planner, Validator
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class Agent:
             formatter_llm=default_llm
         )
         self.evaluator = Evaluator(llm=default_llm, formatter_llm=default_llm)
-        self.output_formater = OutputFormater(llm=default_llm)
+        self.output_formatter = OutputFormatter(llm=default_llm)
 
         self.max_retry_times_per_node: int = max_retry_times_per_node
 
@@ -66,7 +66,8 @@ class Agent:
     def _extract_task_template(task: Task) -> TaskTemplate:
         return TaskTemplate(
             material_names=[m.name for m in task.materials],
-            requirements=task.requirements
+            requirements=task.requirements,
+            output_format=task.output_format,
         )
 
     def run(self, task: Task) -> str:
@@ -87,7 +88,7 @@ class Agent:
 
         self._save_plan(task_template_id, plan, plan_response, orchestrate_response, score_response)
 
-        output = self.output_formater.format_output(task.requirements, output)
+        output = self.output_formatter.format_output(task.requirements, output, task.output_format)
         return output
 
     @staticmethod
