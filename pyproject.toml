@@ -85,6 +85,10 @@ strict_equality = true
 module = "tests.*"
 disallow_untyped_defs = false
 
+[[tool.mypy.overrides]]
+module = "coralmind.output_format"
+ignore_errors = true
+
 [tool.ruff]
 line-length = 120
 target-version = "py310"

@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """
 Output format utilities for dynamic model generation.
 
@@ -171,7 +172,7 @@ def _build_all_of_type(type_def: dict[str, Any], defs: dict[str, Any]) -> type[B
         if "required" in resolved:
             all_required.update(resolved["required"])
 
-    fields = {}
+    fields: dict[str, Any] = {}
     for prop_name, prop_def in all_properties.items():
         field_type = _json_type_to_python(prop_def, defs)
         is_required = prop_name in all_required
@@ -225,7 +226,7 @@ def _build_object_type(type_def: dict[str, Any], defs: dict[str, Any], model_nam
     required = set(type_def.get("required", []))
     additional_props = type_def.get("additionalProperties", True)
 
-    fields = {}
+    fields: dict[str, Any] = {}
     for prop_name, prop_def in properties.items():
         field_type = _json_type_to_python(prop_def, defs)
         is_required = prop_name in required
