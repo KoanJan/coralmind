@@ -74,21 +74,33 @@ class Agent:
         """
         Execute task
         """
+        logger.debug(f"Starting task execution with {len(task.materials)} materials")
+
         task_template = self._extract_task_template(task)
+        logger.debug(f"Task template extracted: materials={task_template.material_names}, has_output_format={task_template.output_format is not None}")
+
         task_template_id = self._get_task_template_id(task_template)
+        logger.debug(f"Task template ID: {task_template_id}")
+
         advice = self.plan_advisor.make_advice(task_template_id, self.advising_strategy)
+        logger.debug(f"Plan advice: type={advice.type if advice else None}")
 
         plan_response = self.planner.make_plan(task_template, advice)
         plan = plan_response.content
+        logger.info(f"Plan generated: {len(plan.nodes)} nodes, token_cost={plan_response.token_cost.total}")
 
         orchestrate_response = self._orchestrate(task.materials, plan)
         output = orchestrate_response.content
+        logger.info(f"Orchestration completed: output_length={len(output)}, token_cost={orchestrate_response.token_cost.total}")
 
         score_response = self.evaluator.score(task, output)
+        logger.info(f"Evaluation completed: score={score_response.content.score}, token_cost={score_response.token_cost.total}")
 
         self._save_plan(task_template_id, plan, plan_response, orchestrate_response, score_response)
+        logger.debug("Plan saved to database")
 
         output = self.output_formatter.format_output(task.requirements, output, task.output_format)
+        logger.debug(f"Task execution completed: final_output_length={len(output)}")
         return output
 
     @staticmethod
@@ -132,6 +144,8 @@ class Agent:
         Returns:
             LLMResponse[str]: Response containing final output and accumulated token cost
         """
+        logger.debug(f"Starting orchestration with {len(plan.nodes)} nodes")
+
         materials_dict = {m.name: m.content for m in materials}
         intermediate_data: dict[str, str] = {}
         cur_output: str | dict[str, str] | None = None
@@ -140,7 +154,9 @@ class Agent:
         if (not plan.nodes) or len(plan.nodes) == 0:
             raise PlanValidationError("Plan contains 0 nodes")
 
-        for plan_node in plan.nodes:
+        for i, plan_node in enumerate(plan.nodes):
+            logger.debug(f"Executing node {i+1}/{len(plan.nodes)}: {plan_node.id} (is_final={plan_node.is_final_node})")
+
             input_materials: dict[str, str] = {}
             for input_field in plan_node.input_fields:
                 if input_field.source_type == InputFieldSourceType.ORIGINAL_MATERIAL:
@@ -151,8 +167,13 @@ class Agent:
                         raise PlanValidationError("output_of_another_node is required", node_id=plan_node.id)
                     key = f"{dep_node.node_id}.{dep_node.output_field_name}"
                     input_materials[key] = intermediate_data[key]
+
+            logger.debug(f"Node {plan_node.id}: input_materials={list(input_materials.keys())}")
+
             output_names = plan_node.output_names or {}
-            for _ in range(self.max_retry_times_per_node):
+            for attempt in range(self.max_retry_times_per_node):
+                logger.debug(f"Node {plan_node.id}: execution attempt {attempt + 1}/{self.max_retry_times_per_node}")
+
                 exec_response = self.executor.execute(input_materials, plan_node.requirements, output_names)
                 total_token_cost = total_token_cost + exec_response.token_cost
                 cur_output = exec_response.content
@@ -164,8 +185,10 @@ class Agent:
                     total_token_cost = total_token_cost + validate_response.token_cost
 
                     if validate_response.content.passed:
+                        logger.debug(f"Node {plan_node.id}: validation passed")
                         break
                     else:
+                        logger.debug(f"Node {plan_node.id}: validation failed, reason: {validate_response.content.reason}")
                         exec_response = self.executor.execute(
                             input_materials, plan_node.requirements, output_names,
                             last_output=cur_output, reject_reason=validate_response.content.reason
@@ -173,10 +196,13 @@ class Agent:
                         total_token_cost = total_token_cost + exec_response.token_cost
                         cur_output = exec_response.content
                 else:
+                    logger.debug(f"Node {plan_node.id}: no output_names, skipping validation")
                     break
+
             if isinstance(cur_output, dict):
                 for name, value in cur_output.items():
                     intermediate_data[f"{plan_node.id}.{name}"] = value
+                logger.debug(f"Node {plan_node.id}: output_names={list(cur_output.keys())}")
 
         if not isinstance(cur_output, str):
             raise ExecutionError(
@@ -184,4 +210,5 @@ class Agent:
                 "This usually indicates the final node did not produce the expected output format."
             )
 
+        logger.debug(f"Orchestration completed: total_token_cost={total_token_cost.total}")
         return LLMResponse(content=cur_output, token_cost=total_token_cost, model="")

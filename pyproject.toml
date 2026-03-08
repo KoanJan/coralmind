@@ -1,6 +1,6 @@
 [project]
 name = "coralmind"
-version = "0.0.4"
+version = "0.0.5"
 description = "A self-evolving AI Agent framework with autonomous planning capabilities"
 readme = "README.md"
 requires-python = ">=3.10"

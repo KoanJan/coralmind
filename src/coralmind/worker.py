@@ -56,11 +56,16 @@ class Planner:
         Raises:
             PlanValidationError: If the generated plan does not meet specifications
         """
+        self.logger.debug(f"Making plan: advice={'None' if advice is None else advice.type}")
+
         if advice:
             response = self._generate_plan_with_advice(task_template, advice)
         else:
             response = self._generate_plan_without_advice(task_template)
+
+        self.logger.debug("Plan generated, validating...")
         self._validate_plan(task_template, response.content)
+        self.logger.debug("Plan validation passed")
         return response
 
     def _generate_plan_with_advice(self, task_template: TaskTemplate, advice: PlanAdvice) -> LLMResponse[Plan]:
@@ -91,26 +96,29 @@ class Planner:
         output_format_section = ""
         if task_template.output_format is not None:
             output_format_section = f"""
-3. Final Output Format (JSON Schema)
+
+# Final Output Format (JSON Schema)
 The final output will be formatted to match this schema after all nodes complete:
 ```json
 {task_template.output_format.json_schema}
 ```
 
-**CRITICAL CONSTRAINT**: This schema is for the FINAL output only, NOT for intermediate nodes.
+**CRITICAL CONSTRAINTS**:
+- This schema is for the FINAL output only, NOT for intermediate nodes
 - Each intermediate node must output `dict[str, str]` where values are plain strings
 - Do NOT create nodes that output JSON arrays or nested objects
 - The final node should output a single string containing all content
 - JSON formatting happens AFTER execution, not during
+- This is NOT a material and should NOT be referenced in input_fields
 """
 
         message = f"""
 # Task Input
 
-1. Materials
+## Materials (Available for input_fields)
 {materials_names}
 
-2. Requirements
+## Requirements
 ```text
 {task_template.requirements}
 ```
@@ -118,6 +126,8 @@ The final output will be formatted to match this schema after all nodes complete
 # Your Task
 
 Create a detailed execution plan based on the Task Input above. Do not directly complete the user's requirements.
+
+**IMPORTANT**: When creating input_fields for each node, only reference materials from the "Materials" section above. Do NOT reference "Final Output Format" or any other items as materials.
 
 # Execution Plan Standard
 ```text
@@ -239,6 +249,7 @@ class Executor:
             LLMResponse[str]: When output_names is None
             LLMResponse[dict[str, str]]: When output_names is not None
         """
+        self.logger.debug(f"Executing: materials={list(materials.keys())}, output_names={list(output_names.keys()) if output_names else None}, is_retry={reject_reason is not None}")
 
         m_names: list[str] = []
         messages: list[str] = []

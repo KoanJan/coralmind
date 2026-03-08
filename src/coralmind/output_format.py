@@ -8,11 +8,14 @@ LLM outputs against user-defined schemas.
 """
 
 import json
+import logging
 from enum import Enum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.functional_validators import AfterValidator
+
+logger = logging.getLogger(__name__)
 
 
 def json_schema_to_pydantic(schema: str | dict[str, Any], model_name: str = "DynamicModel") -> type[BaseModel]:
@@ -29,15 +32,20 @@ def json_schema_to_pydantic(schema: str | dict[str, Any], model_name: str = "Dyn
     Raises:
         ValueError: If the schema is invalid or unsupported
     """
+    logger.debug(f"Converting JSON Schema to Pydantic model: model_name={model_name}")
+
     if isinstance(schema, str):
         try:
             schema_dict = json.loads(schema)
         except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON Schema string: {e}")
             raise ValueError(f"Invalid JSON Schema string: {e}") from e
     else:
         schema_dict = schema
 
-    return _build_model(schema_dict, model_name)
+    model = _build_model(schema_dict, model_name)
+    logger.debug(f"Pydantic model created successfully: {model_name}")
+    return model
 
 
 def _build_model(schema_dict: dict[str, Any], model_name: str = "DynamicModel") -> type[BaseModel]:

@@ -10,6 +10,7 @@ This directory contains usage examples for coralmind.
 | [02_multi_material_analysis.py](02_multi_material_analysis.py) | Intermediate | Multi-material comprehensive analysis task |
 | [03_custom_strategy.py](03_custom_strategy.py) | Advanced | Custom strategy parameter configuration |
 | [04_code_review.py](04_code_review.py) | Advanced | Multi-file code review with env-based LLM config |
+| [05_planner_prompt_test.py](05_planner_prompt_test.py) | Test | Validate Planner prompt fix for output_format handling |
 
 ## Running Examples
 
