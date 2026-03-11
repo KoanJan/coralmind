@@ -2,7 +2,7 @@ import logging
 
 from .exceptions import ExecutionError, PlanValidationError
 from .llm import LLMConfig, LLMResponse, TokenCost
-from .model import InputFieldSourceType, Material, Plan, Task, TaskTemplate
+from .model import InputFieldSourceType, Language, Material, Plan, Task, TaskTemplate
 from .storage import PlanStorage, TaskTemplateStorage, init_storage
 from .strategy.advising import BasePlanStrategy, ThresholdStrategy
 from .worker import Evaluator, Executor, OutputFormatter, PlanAdvisor, Planner, Validator
@@ -68,6 +68,7 @@ class Agent:
             material_names=[m.name for m in task.materials],
             requirements=task.requirements,
             output_format=task.output_format,
+            language=task.language,
         )
 
     def run(self, task: Task) -> str:
@@ -89,7 +90,7 @@ class Agent:
         plan = plan_response.content
         logger.info(f"Plan generated: {len(plan.nodes)} nodes, token_cost={plan_response.token_cost.total}")
 
-        orchestrate_response = self._orchestrate(task.materials, plan)
+        orchestrate_response = self._orchestrate(task.materials, plan, task.language)
         output = orchestrate_response.content
         logger.info(f"Orchestration completed: output_length={len(output)}, token_cost={orchestrate_response.token_cost.total}")
 
@@ -99,7 +100,7 @@ class Agent:
         self._save_plan(task_template_id, plan, plan_response, orchestrate_response, score_response)
         logger.debug("Plan saved to database")
 
-        output = self.output_formatter.format_output(task.requirements, output, task.output_format)
+        output = self.output_formatter.format_output(task.requirements, output, task.output_format, language=task.language)
         logger.debug(f"Task execution completed: final_output_length={len(output)}")
         return output
 
@@ -137,7 +138,7 @@ class Agent:
             total_token_cost.prompt, total_token_cost.completion, total_token_cost.total
         )
 
-    def _orchestrate(self, materials: list[Material], plan: Plan) -> LLMResponse[str]:
+    def _orchestrate(self, materials: list[Material], plan: Plan, language: Language) -> LLMResponse[str]:
         """
         Orchestrate the entire workflow according to the plan
 
@@ -174,13 +175,13 @@ class Agent:
             for attempt in range(self.max_retry_times_per_node):
                 logger.debug(f"Node {plan_node.id}: execution attempt {attempt + 1}/{self.max_retry_times_per_node}")
 
-                exec_response = self.executor.execute(input_materials, plan_node.requirements, output_names)
+                exec_response = self.executor.execute(input_materials, plan_node.requirements, output_names, language=language)
                 total_token_cost = total_token_cost + exec_response.token_cost
                 cur_output = exec_response.content
 
                 if output_names:
                     validate_response = self.validator.validate(
-                        input_materials, plan_node.requirements, output_names, cur_output
+                        input_materials, plan_node.requirements, output_names, cur_output, language=language
                     )
                     total_token_cost = total_token_cost + validate_response.token_cost
 
@@ -191,7 +192,8 @@ class Agent:
                         logger.debug(f"Node {plan_node.id}: validation failed, reason: {validate_response.content.reason}")
                         exec_response = self.executor.execute(
                             input_materials, plan_node.requirements, output_names,
-                            last_output=cur_output, reject_reason=validate_response.content.reason
+                            last_output=cur_output, reject_reason=validate_response.content.reason,
+                            language=language
                         )
                         total_token_cost = total_token_cost + exec_response.token_cost
                         cur_output = exec_response.content

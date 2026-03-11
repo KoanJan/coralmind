@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2026-03-11
+
+### Added
+
+- **Multi-language Prompt System**: Full internationalization support for prompts
+  - Added `Language` enum (EN, CN) as public API in model package
+  - Created language-specific prompt directories (`en/`, `cn/`)
+  - All prompts now support both English and Chinese
+
+### Changed
+
+- **Prompt Architecture Refactoring**: Complete restructure for better maintainability
+  - `name.py`: `PromptName` and `PromptTemplateName` enums for type-safe prompt access
+  - `static.py`: Static prompts (PLAN_STANDARD, EVALUATION_STANDARD)
+  - `template.py`: Template prompts requiring formatting
+  - `func.py`: Complex build functions (build_score_messages, build_validation_messages)
+  - Removed old `llm.py`, `worker.py`, `evaluation_standard.py`, `plan_standard.py` from prompts
+
+- **Type Safety**: Replaced string-based prompt names with enums
+  - `PromptName` for static prompts (used with `get_prompt()`)
+  - `PromptTemplateName` for template prompts (used with `build_prompt()`)
+
+- **Dependency Decoupling**: `Language` enum moved from prompts to model package
+  - `model.Language` is now the public API
+  - `prompts` package uses internal `_get_module_prefix()` for language dispatch
+
 ## [0.0.5] - 2026-03-09
 
 ### Fixed

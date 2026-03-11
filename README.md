@@ -86,6 +86,7 @@ flowchart LR
 - **Closed-Loop Feedback** - Execution result scoring drives plan optimization
 - **Persistent Storage** - Task templates and execution plans automatically saved for cross-session reuse
 - **JSON Schema Output** - Structured output with comprehensive JSON Schema support (enum, const, anyOf, oneOf, allOf, constraints, etc.)
+- **Multi-language Support** - Bilingual prompts (English/Chinese) for better LLM output quality in different languages
 
 ## Installation
 

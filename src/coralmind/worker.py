@@ -14,9 +14,16 @@ from .llm import (
     build_user_message,
     call_llm,
 )
-from .model import InputFieldSourceType, OutputFormat, Plan, PlanAdvice, PlanAdviceType, Task, TaskTemplate
+from .model import InputFieldSourceType, Language, OutputFormat, Plan, PlanAdvice, PlanAdviceType, Task, TaskTemplate
 from .output_format import json_schema_to_pydantic
-from .prompts import EVALUATION_STANDARD, PLAN_STANDARD
+from .prompts import (
+    PromptName,
+    PromptTemplateName,
+    build_prompt,
+    build_score_messages,
+    build_validation_messages,
+    get_prompt,
+)
 from .storage import PlanStorage
 from .strategy.advising import BasePlanStrategy, PlanAdviceAction, PlanRecord
 
@@ -78,7 +85,7 @@ class Planner:
 
         messages = self._build_messages_for_generating_plan(task_template)
         old_plan = advice.old_plan.model_dump_json(indent=2, ensure_ascii=False)
-        old_plan_message = f"# Attachment: Example of a good plan from past similar tasks\n\n```json\n{old_plan}\n```"
+        old_plan_message = build_prompt(PromptTemplateName.OLD_PLAN_ATTACHMENT, language=task_template.language, old_plan=old_plan)
         messages.append(old_plan_message)
 
         result = call_llm(self.llm, as_user_messages(messages), Plan, self.formatter_llm)
@@ -95,50 +102,21 @@ class Planner:
 
         output_format_section = ""
         if task_template.output_format is not None:
-            output_format_section = f"""
+            output_format_section = build_prompt(
+                PromptTemplateName.PLANNER_OUTPUT_FORMAT_SECTION,
+                language=task_template.language,
+                json_schema=task_template.output_format.json_schema
+            )
 
-# Final Output Format (JSON Schema)
-The final output will be formatted to match this schema after all nodes complete:
-```json
-{task_template.output_format.json_schema}
-```
-
-**CRITICAL CONSTRAINTS**:
-- This schema is for the FINAL output only, NOT for intermediate nodes
-- Each intermediate node must output `dict[str, str]` where values are plain strings
-- Do NOT create nodes that output JSON arrays or nested objects
-- The final node should output a single string containing all content
-- JSON formatting happens AFTER execution, not during
-- This is NOT a material and should NOT be referenced in input_fields
-"""
-
-        message = f"""
-# Task Input
-
-## Materials (Available for input_fields)
-{materials_names}
-
-## Requirements
-```text
-{task_template.requirements}
-```
-{output_format_section}
-# Your Task
-
-Create a detailed execution plan based on the Task Input above. Do not directly complete the user's requirements.
-
-**IMPORTANT**: When creating input_fields for each node, only reference materials from the "Materials" section above. Do NOT reference "Final Output Format" or any other items as materials.
-
-# Execution Plan Standard
-```text
-{PLAN_STANDARD}
-```
-
-# Return Format (JSON Schema)
-```json
-{json.dumps(Plan.model_json_schema(), indent=2, ensure_ascii=False)}
-```
-"""
+        message = build_prompt(
+            PromptTemplateName.PLANNER_MESSAGE_TEMPLATE,
+            language=task_template.language,
+            materials_names=materials_names,
+            requirements=task_template.requirements,
+            output_format_section=output_format_section,
+            plan_standard=get_prompt(PromptName.PLAN_STANDARD, task_template.language),
+            return_format_schema=json.dumps(Plan.model_json_schema(), indent=2, ensure_ascii=False)
+        )
         return [message]
 
     @staticmethod
@@ -232,6 +210,7 @@ class Executor:
             materials: dict[str, str],
             requirements: str,
             output_names: dict[str, str] | None,
+            language: Language | None = None,
             last_output: str | dict[str, str] | None = None,
             reject_reason: str | None = None
     ) -> LLMResponse[str] | LLMResponse[dict[str, str]]:
@@ -242,6 +221,7 @@ class Executor:
             materials: Input material dictionary, key is material name, value is material content
             requirements: Task requirement description
             output_names: Expected output field names and their definitions, None means return string result directly
+            language: Language for prompts
             last_output: Output from last execution (for redo scenario)
             reject_reason: Reason for rejection last time (for redo scenario)
 
@@ -249,6 +229,9 @@ class Executor:
             LLMResponse[str]: When output_names is None
             LLMResponse[dict[str, str]]: When output_names is not None
         """
+        if language is None:
+            language = Language.EN
+
         self.logger.debug(f"Executing: materials={list(materials.keys())}, output_names={list(output_names.keys()) if output_names else None}, is_retry={reject_reason is not None}")
 
         m_names: list[str] = []
@@ -257,21 +240,20 @@ class Executor:
             m_names.append(name)
             messages.append(content)
         m_names_text = ", ".join(m_names)
-        requirements = f"The above are {m_names_text} respectively.\n\n{requirements}"
+        requirements = build_prompt(PromptTemplateName.EXECUTOR_REQUIREMENTS, language=language,
+                                    material_names=m_names_text, requirements=requirements)
         messages.append(requirements)
         if output_names:
             output_name_descriptions = [f"`{k}` (definition: {v})" for k, v in output_names.items()]
             output_name_descriptions_text = ", ".join(output_name_descriptions)
-            output_format_requirement = f"""Return a JSON dictionary containing the following fields: {output_name_descriptions_text}.
-
-**CRITICAL**: All values in the dictionary MUST be strings (str type), NOT arrays, objects, or nested structures.
-- If you need to return multiple items, format them as a single string (e.g., newline-separated or JSON stringified)
-- Example of CORRECT format: {{"items": "item1\\nitem2\\nitem3"}}
-- Example of WRONG format: {{"items": ["item1", "item2", "item3"]}}"""
+            output_format_requirement = build_prompt(
+                PromptTemplateName.OUTPUT_FORMAT_WITH_NAMES,
+                language=language,
+                output_name_descriptions=output_name_descriptions_text
+            )
             messages.append(output_format_requirement)
         else:
-            output_format_requirement = "Return the final result directly. Do not include any content that is not part of the deliverable itself."
-            messages.append(output_format_requirement)
+            messages.append(build_prompt(PromptTemplateName.OUTPUT_FORMAT_WITHOUT_NAMES, language=language))
 
         llm_messages = as_user_messages(messages)
 
@@ -312,7 +294,8 @@ class Validator:
             materials: dict[str, str],
             requirements: str,
             output_names: dict[str, str],
-            output: str | dict[str, str]
+            output: str | dict[str, str],
+            language: Language | None = None
     ) -> LLMResponse[ValidateResult]:
         """
         Execute validation
@@ -326,10 +309,13 @@ class Validator:
             requirements: Task requirements
             output_names: Expected output field definitions
             output: Actual output result
+            language: Language for prompts
 
         Returns:
             LLMResponse[ValidateResult]: Response containing validation result and token cost
         """
+        if language is None:
+            language = Language.EN
 
         quick_check_result = self._quick_check_output_type(output_names, output)
         if quick_check_result:
@@ -339,43 +325,7 @@ class Validator:
                 model="",
             )
 
-        messages: list[str] = []
-
-        for name, content in materials.items():
-            messages.append(f"# {name}\n\n{content}")
-
-        if isinstance(output, str):
-            output_text = output
-            output_names_text = ""
-        else:
-            output_name_descriptions = [f"- `{k}`: {v}" for k, v in output_names.items()]
-            output_names_text = "\n".join(output_name_descriptions)
-            output_names_text = f"# Expected Output Fields\n\n{output_names_text}\n"
-            output_text = json.dumps(output, indent=2, ensure_ascii=False)
-
-        validation_prompt = f"""# Task Requirements
-
-{requirements}
-
-# Expected Output Fields
-
-{output_names_text}
-
-# Actual Output
-
-{output_text}
-
-# Validation Task
-
-Please validate whether the actual output meets the following conditions:
-1. Does it contain all expected output fields?
-2. Does each field's content match its definition?
-3. Does the overall output meet the task requirements?
-
-Return in JSON format:
-{{"passed": true/false, "reason": "reason for failure (empty string if passed)"}}"""
-
-        messages.append(validation_prompt)
+        messages = build_validation_messages(language, materials, requirements, output, output_names)
 
         result = call_llm(self.llm, as_user_messages(messages), ValidateResult, self.formatter_llm)
         return cast(LLMResponse[ValidateResult], result)
@@ -435,27 +385,7 @@ class Evaluator:
         Returns:
             LLMResponse[EvaluationScore]: Response containing score and token cost
         """
-        messages: list[str] = []
-
-        for material in task.materials:
-            messages.append(f"# {material.name}\n\n{material.content}")
-
-        messages.append(f"# Task Requirements\n\n{task.requirements}")
-
-        messages.append(f"# Actual Output\n\n{output}")
-
-        messages.append(f"# Evaluation Standard\n\n{EVALUATION_STANDARD}")
-
-        messages.append("""# Return Format
-
-Please return the evaluation result in the following JSON format:
-```json
-{
-  "score": integer from 0-10,
-  "reason": "detailed reason for the score"
-}
-```""")
-
+        messages = build_score_messages(task, output)
         result = call_llm(self.llm, as_user_messages(messages), EvaluationScore, self.formatter_llm)
         return cast(LLMResponse[EvaluationScore], result)
 
@@ -508,7 +438,13 @@ class OutputFormatter:
     def __init__(self, llm: LLMConfig):
         self.llm = llm
 
-    def format_output(self, requirements: str, output: str, output_format: OutputFormat | None = None) -> str:
+    def format_output(
+        self,
+        requirements: str,
+        output: str,
+        output_format: OutputFormat | None = None,
+        language: Language | None = None
+    ) -> str:
         """
         Format output according to optional format specification.
 
@@ -516,31 +452,26 @@ class OutputFormatter:
             requirements: Task output requirements (unused, kept for API compatibility)
             output: Raw output from orchestration
             output_format: Optional format specification (e.g., JSON schema)
+            language: Language for prompts
 
         Returns:
             Formatted output string, or original output if no format specified
         """
+        if language is None:
+            language = Language.EN
+
         if output_format is not None:
-            return self._format_to_schema(output, output_format)
+            return self._format_to_schema(output, output_format, language)
         return output
 
-    def _format_to_schema(self, output: str, output_format: OutputFormat) -> str:
+    def _format_to_schema(self, output: str, output_format: OutputFormat, language: Language) -> str:
         """Format output to match the specified JSON schema"""
         output_msg = f"# Original Output\n\n```\n{output}\n```\n"
-        prompt = f"""
-The above is the original output content.
-
-# Your Task
-Transform the original output into a valid JSON that strictly follows the JSONSchema below. Preserve all meaningful information from the original output.
-
-# JSONSchema
-```json
-{output_format.json_schema}
-```
-
-# Return Format
-Return ONLY the JSON object, without any markdown formatting, code blocks, or additional text.
-"""
+        prompt = build_prompt(
+            PromptTemplateName.FORMAT_TO_SCHEMA,
+            language=language,
+            json_schema=output_format.json_schema
+        )
         dynamic_model = json_schema_to_pydantic(output_format.json_schema)
         result = call_llm(self.llm, as_user_messages([output_msg, prompt]), dynamic_model)
         return result.content.model_dump_json(exclude_none=True)

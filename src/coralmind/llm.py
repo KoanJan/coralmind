@@ -8,6 +8,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from .exceptions import ConfigurationError, LLMError
+from .prompts import PromptTemplateName, build_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -191,19 +192,11 @@ def _fix_dict_structure_by_llm(llm: LLMConfig, json_string: str, error_msg: str)
     Returns:
         Fixed JSON string that should be a dict with string values
     """
-    prompt = f"""The following JSON has a structure error:
-
-```json
-{json_string}
-```
-
-Error: {error_msg}
-
-Please fix the JSON and return ONLY the corrected JSON. Requirements:
-1. The output must be a JSON object (dict), not an array
-2. All values must be strings (str), not arrays or nested objects
-3. If you need to represent multiple items, use newline-separated strings or JSON-stringified strings
-4. Do not include any markdown formatting or explanations, just the raw JSON"""
+    prompt = build_prompt(
+        PromptTemplateName.FIX_DICT_STRUCTURE,
+        json_string=json_string,
+        error_msg=error_msg
+    )
 
     fixed_json = _call_llm(llm, [build_user_message(prompt)]).content
     return _quick_fix_object_json(fixed_json)
@@ -248,24 +241,12 @@ def _fix_model_json_by_llm(llm: LLMConfig, json_string: str, model_type: type[Ba
         Fixed JSON string that should conform to the model schema
     """
     schema = model_type.model_json_schema()
-    prompt = f"""The following JSON has validation errors:
-
-```json
-{json_string}
-```
-
-Error: {error_msg}
-
-Target schema:
-```json_schema
-{schema}
-```
-
-Please fix the JSON and return ONLY the corrected JSON. Requirements:
-1. The output must conform to the target schema exactly
-2. All required fields must be present
-3. Field types must match the schema definitions
-4. Do not include any markdown formatting or explanations, just the raw JSON"""
+    prompt = build_prompt(
+        PromptTemplateName.FIX_MODEL_VALIDATION,
+        json_string=json_string,
+        error_msg=error_msg,
+        schema=schema
+    )
 
     fixed_json = _call_llm(llm, [build_user_message(prompt)]).content
     return _quick_fix_object_json(fixed_json)

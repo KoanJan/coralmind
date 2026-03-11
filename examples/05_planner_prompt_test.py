@@ -12,7 +12,7 @@ Expected behavior after fix:
 import json
 import logging
 import os
-from coralmind import Agent, Task, Material, LLMConfig, OutputFormat
+from coralmind import Agent, Language, LLMConfig, Material, OutputFormat, Task
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -138,6 +138,7 @@ def main():
         materials=materials,
         requirements=REQUIREMENTS,
         output_format=OutputFormat(json_schema=OUTPUT_FORMAT_JSON_SCHEMA),
+        language=Language.CN,
     )
 
     print("=" * 60)

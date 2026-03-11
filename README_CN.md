@@ -86,6 +86,7 @@ flowchart LR
 - **闭环反馈** - 执行结果评分，驱动计划优化
 - **持久化存储** - 任务模板和执行计划自动保存，跨会话复用
 - **JSON Schema 输出** - 结构化输出，全面支持 JSON Schema（enum、const、anyOf、oneOf、allOf、约束等）
+- **多语言支持** - 中英双语提示词，提升不同语言场景下的 LLM 输出质量
 
 ## 安装
 

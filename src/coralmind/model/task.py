@@ -1,8 +1,14 @@
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-__all__ = ["Task", "Material", "OutputFormat", "JsonOutputFormat"]
+__all__ = ["Task", "Material", "OutputFormat", "JsonOutputFormat", "Language"]
+
+
+class Language(Enum):
+    EN = "en"
+    CN = "cn"
 
 
 class Material(BaseModel):
@@ -31,3 +37,4 @@ class Task(BaseModel):
     materials: list[Material] = Field(description="Material-type information")
     requirements: str = Field(description="Reusable output requirements")
     output_format: OutputFormat | None = Field(default=None, description="Output format specification")
+    language: Language = Field(default=Language.EN, description="Language for prompts")
