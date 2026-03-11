@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2026-03-12
+
+### Fixed
+
+- **Executor Material Format**: Added material name header in executor messages for better LLM context
+  - Before: Material content was passed without context
+  - After: Material content is formatted with name header (`# {name}\n\n{content}\n`)
+
 ## [0.0.6] - 2026-03-11
 
 ### Added

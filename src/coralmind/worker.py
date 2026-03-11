@@ -238,7 +238,7 @@ class Executor:
         messages: list[str] = []
         for name, content in materials.items():
             m_names.append(name)
-            messages.append(content)
+            messages.append(f"# {name}\n\n{content}\n")
         m_names_text = ", ".join(m_names)
         requirements = build_prompt(PromptTemplateName.EXECUTOR_REQUIREMENTS, language=language,
                                     material_names=m_names_text, requirements=requirements)
