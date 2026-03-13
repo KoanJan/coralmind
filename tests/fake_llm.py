@@ -82,7 +82,7 @@ class FakeLLM:
 
         if output_type and hasattr(output_type, '__name__'):
             type_name = output_type.__name__
-            if 'Plan' in type_name:
+            if 'Plan' in type_name and 'Validation' not in type_name:
                 return "plan"
             elif 'Validate' in type_name:
                 return "validate"
@@ -134,6 +134,8 @@ class FakeLLM:
                     fake_data[k] = 8
                 elif prop_type == "boolean":
                     fake_data[k] = True
+                elif prop_type == "array":
+                    fake_data[k] = []
                 else:
                     fake_data[k] = "fake"
             return json.dumps(fake_data)

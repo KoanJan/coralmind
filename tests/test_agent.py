@@ -136,7 +136,7 @@ def test_plan_validation():
 
     task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
-    agent.planner._validate_plan(task_template, plan)
+    agent.planner._validate_plan_structure(task_template, plan)
 
 
 def test_plan_validation_empty_nodes():
@@ -146,7 +146,7 @@ def test_plan_validation_empty_nodes():
     task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
     with pytest.raises(PlanValidationError, match="at least 1 node"):
-        agent.planner._validate_plan(task_template, plan)
+        agent.planner._validate_plan_structure(task_template, plan)
 
 
 def test_plan_validation_duplicate_node_id():
@@ -188,7 +188,7 @@ def test_plan_validation_duplicate_node_id():
     task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
     with pytest.raises(PlanValidationError, match="Duplicate node_id"):
-        agent.planner._validate_plan(task_template, plan)
+        agent.planner._validate_plan_structure(task_template, plan)
 
 
 def test_plan_validation_invalid_material():
@@ -214,7 +214,33 @@ def test_plan_validation_invalid_material():
     task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
     with pytest.raises(PlanValidationError, match="not found in task template"):
-        agent.planner._validate_plan(task_template, plan)
+        agent.planner._validate_plan_structure(task_template, plan)
+
+
+def test_plan_validation_missing_material():
+    agent = Agent(default_llm=FakeLLMInstance)
+
+    plan = Plan(
+        nodes=[
+            PlanNode(
+                id="node_1",
+                requirements="处理输入",
+                input_fields=[
+                    InputField(
+                        source_type=InputFieldSourceType.ORIGINAL_MATERIAL,
+                        material_name="input1",
+                        output_of_another_node=None,
+                    )
+                ],
+                output_names=None,
+                is_final_node=True,
+            )
+        ]
+    )
+    task_template = TaskTemplate(material_names=["input1", "input2"], requirements="测试任务")
+
+    with pytest.raises(PlanValidationError, match="does not use the following materials"):
+        agent.planner._validate_plan_structure(task_template, plan)
 
 
 class TestSavePlan:
@@ -246,6 +272,7 @@ class TestSavePlan:
                 )
             ]
         ))
+        fake.set_response("validate", {"passed": True, "reason": ""})
         fake.set_response("execute", "结果")
         fake.set_response("score", {"score": 8, "reason": "良好"})
         fake.set_response("format", {"need_reformat": False, "new_content": None})
@@ -285,6 +312,7 @@ class TestSavePlan:
                 )
             ]
         ))
+        fake.set_response("validate", {"passed": True, "reason": ""})
         fake.set_response("execute", "结果")
         fake.set_response("score", {"score": 9, "reason": "优秀"})
         fake.set_response("format", {"need_reformat": False, "new_content": None})

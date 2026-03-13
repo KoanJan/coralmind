@@ -103,3 +103,14 @@ Transform the original output into a valid JSON that strictly follows the JSONSc
 # Return Format
 Return ONLY the JSON object, without any markdown formatting, code blocks, or additional text.
 """
+
+GLOBAL_REQUIREMENTS_CONTEXT = """# Global Task Background
+
+This step is part of a larger task. The original overall requirement is:
+
+```
+{global_requirements}
+```
+
+Please keep this global goal in mind while executing the current step.
+"""

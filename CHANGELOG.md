@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2026-03-14
+
+### Added
+
+- **Global Requirements Context**: Propagate original requirements to each execution step
+  - Added `global_requirements` parameter to Executor and Validator
+  - Added `GLOBAL_REQUIREMENTS_CONTEXT` prompt template (CN/EN)
+  - Helps maintain alignment with overall task goals throughout multi-step execution
+
+- **Material Coverage Validation**: Ensure all materials are used in plan
+  - Integrated into `_validate_plan_structure` method
+  - Raises `PlanValidationError` if any material is not referenced in plan
+
+- **Plan Generation Retry**: Simple retry mechanism for plan validation failures
+  - Added `max_retry_times_for_plan` parameter to Agent (default: 3)
+
+### Changed
+
+- **Scoring System Redesign**: Replaced multi-dimensional scoring with dependency-based rating
+  - New sequential evaluation: deliverable type → logic → requirements completion → depth/innovation
+  - Clearer grading criteria: Failed(0-2) → Poor(3-4) → Average(5-6) → Good(7-8) → Excellent(9-10)
+
+- **Method Renaming**: `Validator.validate` renamed to `validate_execution` for clarity
+
 ## [0.0.7] - 2026-03-12
 
 ### Fixed

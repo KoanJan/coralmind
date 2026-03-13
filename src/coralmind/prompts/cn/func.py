@@ -23,9 +23,15 @@ VALIDATION_PROMPT = """# 任务要求
 1. 是否包含所有预期输出字段？
 2. 每个字段的内容是否与其定义匹配？
 3. 整体输出是否满足任务要求？
+{alignment_check}
 
 以 JSON 格式返回：
 {{"passed": true/false, "reason": "失败原因（如果通过则为空字符串）"}}"""
+
+VALIDATION_ALIGNMENT_CHECK = """4. 输出是否与原始全局要求保持一致？如果输出偏离了原始意图，应当拒绝。
+
+原始全局要求：
+{global_requirements}"""
 
 SCORE_RETURN_FORMAT = """# 返回格式
 
@@ -43,6 +49,7 @@ def build_validation_messages(
     requirements: str,
     output: str | dict[str, str],
     output_names: dict[str, str] | None,
+    global_requirements: str | None = None,
 ) -> list[str]:
     """Build messages for validating task output."""
     messages: list[str] = []
@@ -59,10 +66,16 @@ def build_validation_messages(
         output_names_text = VALIDATION_EXPECTED_OUTPUT_FIELDS.format(output_names_text=output_names_text_content)
         output_text = json.dumps(output, indent=2, ensure_ascii=False)
 
+    if global_requirements:
+        alignment_check = VALIDATION_ALIGNMENT_CHECK.format(global_requirements=global_requirements)
+    else:
+        alignment_check = ""
+
     validation_prompt = VALIDATION_PROMPT.format(
         requirements=requirements,
         output_names_text=output_names_text,
-        output_text=output_text
+        output_text=output_text,
+        alignment_check=alignment_check
     )
     messages.append(validation_prompt)
 

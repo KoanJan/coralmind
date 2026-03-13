@@ -103,3 +103,14 @@ FORMAT_TO_SCHEMA = """
 # 返回格式
 仅返回 JSON 对象，不要包含任何 markdown 格式、代码块或额外文本。
 """
+
+GLOBAL_REQUIREMENTS_CONTEXT = """# 全局任务背景
+
+本步骤是一个更大任务的一部分。原始的总体要求是：
+
+```
+{global_requirements}
+```
+
+请在执行当前步骤时牢记这一全局目标。
+"""

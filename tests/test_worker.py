@@ -92,7 +92,7 @@ class TestPlanner:
         task_template = TaskTemplate(material_names=["input"], requirements="测试")
 
         with pytest.raises(PlanValidationError, match="at least 1 node"):
-            planner._validate_plan(task_template, plan)
+            planner._validate_plan_structure(task_template, plan)
 
     def test_validate_plan_invalid_final_node(self):
         fake = FakeLLM()
@@ -118,7 +118,33 @@ class TestPlanner:
         task_template = TaskTemplate(material_names=["input"], requirements="测试")
 
         with pytest.raises(PlanValidationError, match="final node"):
-            planner._validate_plan(task_template, plan)
+            planner._validate_plan_structure(task_template, plan)
+
+    def test_validate_plan_missing_material(self):
+        fake = FakeLLM()
+        planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
+
+        plan = Plan(
+            nodes=[
+                PlanNode(
+                    id="node_1",
+                    requirements="处理",
+                    input_fields=[
+                        InputField(
+                            source_type=InputFieldSourceType.ORIGINAL_MATERIAL,
+                            material_name="input1",
+                            output_of_another_node=None,
+                        )
+                    ],
+                    output_names=None,
+                    is_final_node=True,
+                )
+            ]
+        )
+        task_template = TaskTemplate(material_names=["input1", "input2"], requirements="测试")
+
+        with pytest.raises(PlanValidationError, match="does not use the following materials"):
+            planner._validate_plan_structure(task_template, plan)
 
 
 class TestExecutor:
@@ -176,14 +202,14 @@ class TestExecutor:
 
 class TestValidator:
 
-    def test_validate_pass(self):
+    def test_validate_execution_pass(self):
         fake = FakeLLM()
         fake.set_response("validate", {"passed": True, "reason": ""})
 
         with create_mock_llm(fake):
             validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            response = validator.validate(
+            response = validator.validate_execution(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_names={},
@@ -193,14 +219,14 @@ class TestValidator:
             assert isinstance(response, LLMResponse)
             assert response.content.passed is True
 
-    def test_validate_fail(self):
+    def test_validate_execution_fail(self):
         fake = FakeLLM()
         fake.set_response("validate", {"passed": False, "reason": "输出不完整"})
 
         with create_mock_llm(fake):
             validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            response = validator.validate(
+            response = validator.validate_execution(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_names={},

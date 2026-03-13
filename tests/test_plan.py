@@ -12,7 +12,7 @@ def test_plan():
         material_names=["market_report", "competitor_analysis", "user_survey"],
         requirements="制定产品策略方案"
     )
-    agent.planner._validate_plan(task_template, plan)
+    agent.planner._validate_plan_structure(task_template, plan)
 
 
 def test_plan_single_node():
@@ -39,4 +39,4 @@ def test_plan_single_node():
     )
     task_template = TaskTemplate(material_names=["input"], requirements="测试")
 
-    agent.planner._validate_plan(task_template, plan)
+    agent.planner._validate_plan_structure(task_template, plan)

@@ -17,6 +17,9 @@ from .cn.template import (
     FORMAT_TO_SCHEMA as FORMAT_TO_SCHEMA_CN,
 )
 from .cn.template import (
+    GLOBAL_REQUIREMENTS_CONTEXT as GLOBAL_REQUIREMENTS_CONTEXT_CN,
+)
+from .cn.template import (
     OLD_PLAN_ATTACHMENT as OLD_PLAN_ATTACHMENT_CN,
 )
 from .cn.template import (
@@ -44,6 +47,9 @@ from .en.template import (
 )
 from .en.template import (
     FORMAT_TO_SCHEMA as FORMAT_TO_SCHEMA_EN,
+)
+from .en.template import (
+    GLOBAL_REQUIREMENTS_CONTEXT as GLOBAL_REQUIREMENTS_CONTEXT_EN,
 )
 from .en.template import (
     OLD_PLAN_ATTACHMENT as OLD_PLAN_ATTACHMENT_EN,
@@ -96,6 +102,7 @@ _TEMPLATE_PROMPTS = {
         PromptTemplateName.OLD_PLAN_ATTACHMENT: OLD_PLAN_ATTACHMENT_EN,
         PromptTemplateName.EXECUTOR_REQUIREMENTS: EXECUTOR_REQUIREMENTS_EN,
         PromptTemplateName.FORMAT_TO_SCHEMA: FORMAT_TO_SCHEMA_EN,
+        PromptTemplateName.GLOBAL_REQUIREMENTS_CONTEXT: GLOBAL_REQUIREMENTS_CONTEXT_EN,
     },
     Language.CN: {
         PromptTemplateName.FIX_DICT_STRUCTURE: FIX_DICT_STRUCTURE_CN,
@@ -107,6 +114,7 @@ _TEMPLATE_PROMPTS = {
         PromptTemplateName.OLD_PLAN_ATTACHMENT: OLD_PLAN_ATTACHMENT_CN,
         PromptTemplateName.EXECUTOR_REQUIREMENTS: EXECUTOR_REQUIREMENTS_CN,
         PromptTemplateName.FORMAT_TO_SCHEMA: FORMAT_TO_SCHEMA_CN,
+        PromptTemplateName.GLOBAL_REQUIREMENTS_CONTEXT: GLOBAL_REQUIREMENTS_CONTEXT_CN,
     },
 }
 
@@ -170,6 +178,7 @@ def build_validation_messages(
     requirements: str,
     output: str | dict[str, str],
     output_names: dict[str, str] | None = None,
+    global_requirements: str | None = None,
 ) -> list[str]:
     """
     Build messages for validating task output.
@@ -180,13 +189,14 @@ def build_validation_messages(
         requirements: Task requirements
         output: Actual output (string or dict)
         output_names: Expected output field definitions
+        global_requirements: Original overall task requirements for alignment check
 
     Returns:
         List of message strings for validation
     """
     module_prefix = _get_module_prefix(language)
     func_module = import_module(f".{module_prefix}.func", package=__name__)
-    result: list[str] = func_module.build_validation_messages(materials, requirements, output, output_names)
+    result: list[str] = func_module.build_validation_messages(materials, requirements, output, output_names, global_requirements)
     return result
 
 

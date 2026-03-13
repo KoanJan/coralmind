@@ -16,3 +16,4 @@ class PromptTemplateName(Enum):
     OLD_PLAN_ATTACHMENT = "old_plan_attachment"
     EXECUTOR_REQUIREMENTS = "executor_requirements"
     FORMAT_TO_SCHEMA = "format_to_schema"
+    GLOBAL_REQUIREMENTS_CONTEXT = "global_requirements_context"

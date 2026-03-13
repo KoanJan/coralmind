@@ -23,9 +23,15 @@ Please validate whether the actual output meets the following conditions:
 1. Does it contain all expected output fields?
 2. Does each field's content match its definition?
 3. Does the overall output meet the task requirements?
+{alignment_check}
 
 Return in JSON format:
 {{"passed": true/false, "reason": "reason for failure (empty string if passed)"}}"""
+
+VALIDATION_ALIGNMENT_CHECK = """4. Does the output align with the original global requirements? If the output deviates from the original intent, it should be rejected.
+
+Original Global Requirements:
+{global_requirements}"""
 
 SCORE_RETURN_FORMAT = """# Return Format
 
@@ -43,6 +49,7 @@ def build_validation_messages(
     requirements: str,
     output: str | dict[str, str],
     output_names: dict[str, str] | None,
+    global_requirements: str | None = None,
 ) -> list[str]:
     """Build messages for validating task output."""
     messages: list[str] = []
@@ -59,10 +66,16 @@ def build_validation_messages(
         output_names_text = VALIDATION_EXPECTED_OUTPUT_FIELDS.format(output_names_text=output_names_text_content)
         output_text = json.dumps(output, indent=2, ensure_ascii=False)
 
+    if global_requirements:
+        alignment_check = VALIDATION_ALIGNMENT_CHECK.format(global_requirements=global_requirements)
+    else:
+        alignment_check = ""
+
     validation_prompt = VALIDATION_PROMPT.format(
         requirements=requirements,
         output_names_text=output_names_text,
-        output_text=output_text
+        output_text=output_text,
+        alignment_check=alignment_check
     )
     messages.append(validation_prompt)
 

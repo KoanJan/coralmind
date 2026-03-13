@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 from typing import Any, cast
@@ -51,7 +53,7 @@ class Planner:
         - If advice exists and type is BASE_ON, optimize based on the old plan
         - If no advice, generate plan from scratch
 
-        The generated plan will be validated.
+        The generated plan will be structurally validated.
 
         Args:
             task_template: Task template containing material names and requirements
@@ -61,7 +63,7 @@ class Planner:
             LLMResponse[Plan]: Response containing generated plan and token cost
 
         Raises:
-            PlanValidationError: If the generated plan does not meet specifications
+            PlanValidationError: If the generated plan does not meet structural specifications
         """
         self.logger.debug(f"Making plan: advice={'None' if advice is None else advice.type}")
 
@@ -70,9 +72,10 @@ class Planner:
         else:
             response = self._generate_plan_without_advice(task_template)
 
-        self.logger.debug("Plan generated, validating...")
-        self._validate_plan(task_template, response.content)
-        self.logger.debug("Plan validation passed")
+        self.logger.debug("Plan generated, validating structure...")
+        self._validate_plan_structure(task_template, response.content)
+        self.logger.debug("Plan structure validation passed")
+
         return response
 
     def _generate_plan_with_advice(self, task_template: TaskTemplate, advice: PlanAdvice) -> LLMResponse[Plan]:
@@ -120,8 +123,8 @@ class Planner:
         return [message]
 
     @staticmethod
-    def _validate_plan(task_template: TaskTemplate, plan: Plan) -> None:
-        """Validate plan effectiveness
+    def _validate_plan_structure(task_template: TaskTemplate, plan: Plan) -> None:
+        """Validate plan structure
 
         Checks include:
         - Plan must contain at least one node
@@ -129,6 +132,7 @@ class Planner:
         - Node IDs cannot be duplicated
         - Non-final nodes must have output fields
         - Input dependencies must be valid (referenced materials and node outputs must exist)
+        - All materials must be used in the plan
 
         Args:
             task_template: Task template
@@ -155,6 +159,7 @@ class Planner:
             node.id: list(node.output_names.keys()) if node.output_names else []
             for node in plan.nodes
         }
+        used_materials: set[str] = set()
 
         for i, node in enumerate(plan.nodes):
 
@@ -163,6 +168,7 @@ class Planner:
 
             for input_field in node.input_fields:
                 if input_field.source_type == InputFieldSourceType.ORIGINAL_MATERIAL:
+                    used_materials.add(input_field.material_name)
                     if input_field.material_name not in task_template.material_names:
                         raise PlanValidationError(
                             f"Material '{input_field.material_name}' not found in task template. "
@@ -193,6 +199,10 @@ class Planner:
                             node_id=node.id
                         )
 
+        missing = set(task_template.material_names) - used_materials
+        if missing:
+            raise PlanValidationError(f"Plan does not use the following materials: {', '.join(missing)}")
+
 
 class Executor:
     """
@@ -212,7 +222,8 @@ class Executor:
             output_names: dict[str, str] | None,
             language: Language | None = None,
             last_output: str | dict[str, str] | None = None,
-            reject_reason: str | None = None
+            reject_reason: str | None = None,
+            global_requirements: str | None = None
     ) -> LLMResponse[str] | LLMResponse[dict[str, str]]:
         """
         Execute task
@@ -224,6 +235,7 @@ class Executor:
             language: Language for prompts
             last_output: Output from last execution (for redo scenario)
             reject_reason: Reason for rejection last time (for redo scenario)
+            global_requirements: Original overall task requirements for context
 
         Returns:
             LLMResponse[str]: When output_names is None
@@ -236,6 +248,15 @@ class Executor:
 
         m_names: list[str] = []
         messages: list[str] = []
+
+        if global_requirements:
+            global_context = build_prompt(
+                PromptTemplateName.GLOBAL_REQUIREMENTS_CONTEXT,
+                language=language,
+                global_requirements=global_requirements
+            )
+            messages.append(global_context)
+
         for name, content in materials.items():
             m_names.append(name)
             messages.append(f"# {name}\n\n{content}\n")
@@ -289,16 +310,17 @@ class Validator:
         self.llm = llm
         self.formatter_llm = formatter_llm
 
-    def validate(
+    def validate_execution(
             self,
             materials: dict[str, str],
             requirements: str,
             output_names: dict[str, str],
             output: str | dict[str, str],
-            language: Language | None = None
+            language: Language | None = None,
+            global_requirements: str | None = None
     ) -> LLMResponse[ValidateResult]:
         """
-        Execute validation
+        Validate execution result
 
         Validation flow:
         1. First perform quick rule validation (check output type and field completeness)
@@ -310,6 +332,7 @@ class Validator:
             output_names: Expected output field definitions
             output: Actual output result
             language: Language for prompts
+            global_requirements: Original overall task requirements for alignment check
 
         Returns:
             LLMResponse[ValidateResult]: Response containing validation result and token cost
@@ -325,7 +348,7 @@ class Validator:
                 model="",
             )
 
-        messages = build_validation_messages(language, materials, requirements, output, output_names)
+        messages = build_validation_messages(language, materials, requirements, output, output_names, global_requirements)
 
         result = call_llm(self.llm, as_user_messages(messages), ValidateResult, self.formatter_llm)
         return cast(LLMResponse[ValidateResult], result)
@@ -335,7 +358,7 @@ class Validator:
             output_names: dict[str, str],
             output: str | dict[str, Any]
     ) -> ValidateResult | None:
-        """Quick validation of parameters
+        """Quick validation of output type
 
         Returns:
             ValidateResult: If validation fails, return error result
