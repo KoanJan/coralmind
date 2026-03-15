@@ -34,6 +34,12 @@ from .cn.template import (
 from .cn.template import (
     PLANNER_OUTPUT_FORMAT_SECTION as PLANNER_OUTPUT_FORMAT_SECTION_CN,
 )
+from .cn.template import (
+    RELEVANT_REQUIREMENTS_CONTEXT as RELEVANT_REQUIREMENTS_CONTEXT_CN,
+)
+from .cn.template import (
+    REQUIREMENT_TREE_BUILD as REQUIREMENT_TREE_BUILD_CN,
+)
 from .en import EVALUATION_STANDARD as EVALUATION_STANDARD_EN
 from .en import PLAN_STANDARD as PLAN_STANDARD_EN
 from .en.template import (
@@ -65,6 +71,12 @@ from .en.template import (
 )
 from .en.template import (
     PLANNER_OUTPUT_FORMAT_SECTION as PLANNER_OUTPUT_FORMAT_SECTION_EN,
+)
+from .en.template import (
+    RELEVANT_REQUIREMENTS_CONTEXT as RELEVANT_REQUIREMENTS_CONTEXT_EN,
+)
+from .en.template import (
+    REQUIREMENT_TREE_BUILD as REQUIREMENT_TREE_BUILD_EN,
 )
 from .name import PromptName, PromptTemplateName
 
@@ -103,6 +115,8 @@ _TEMPLATE_PROMPTS = {
         PromptTemplateName.EXECUTOR_REQUIREMENTS: EXECUTOR_REQUIREMENTS_EN,
         PromptTemplateName.FORMAT_TO_SCHEMA: FORMAT_TO_SCHEMA_EN,
         PromptTemplateName.GLOBAL_REQUIREMENTS_CONTEXT: GLOBAL_REQUIREMENTS_CONTEXT_EN,
+        PromptTemplateName.REQUIREMENT_TREE_BUILD: REQUIREMENT_TREE_BUILD_EN,
+        PromptTemplateName.RELEVANT_REQUIREMENTS_CONTEXT: RELEVANT_REQUIREMENTS_CONTEXT_EN,
     },
     Language.CN: {
         PromptTemplateName.FIX_DICT_STRUCTURE: FIX_DICT_STRUCTURE_CN,
@@ -115,6 +129,8 @@ _TEMPLATE_PROMPTS = {
         PromptTemplateName.EXECUTOR_REQUIREMENTS: EXECUTOR_REQUIREMENTS_CN,
         PromptTemplateName.FORMAT_TO_SCHEMA: FORMAT_TO_SCHEMA_CN,
         PromptTemplateName.GLOBAL_REQUIREMENTS_CONTEXT: GLOBAL_REQUIREMENTS_CONTEXT_CN,
+        PromptTemplateName.REQUIREMENT_TREE_BUILD: REQUIREMENT_TREE_BUILD_CN,
+        PromptTemplateName.RELEVANT_REQUIREMENTS_CONTEXT: RELEVANT_REQUIREMENTS_CONTEXT_CN,
     },
 }
 
@@ -178,7 +194,7 @@ def build_validation_messages(
     requirements: str,
     output: str | dict[str, str],
     output_names: dict[str, str] | None = None,
-    global_requirements: str | None = None,
+    relevant_requirements: str | None = None,
 ) -> list[str]:
     """
     Build messages for validating task output.
@@ -189,14 +205,14 @@ def build_validation_messages(
         requirements: Task requirements
         output: Actual output (string or dict)
         output_names: Expected output field definitions
-        global_requirements: Original overall task requirements for alignment check
+        relevant_requirements: Relevant requirements for alignment check (from requirement tree or global fallback)
 
     Returns:
         List of message strings for validation
     """
     module_prefix = _get_module_prefix(language)
     func_module = import_module(f".{module_prefix}.func", package=__name__)
-    result: list[str] = func_module.build_validation_messages(materials, requirements, output, output_names, global_requirements)
+    result: list[str] = func_module.build_validation_messages(materials, requirements, output, output_names, relevant_requirements)
     return result
 
 

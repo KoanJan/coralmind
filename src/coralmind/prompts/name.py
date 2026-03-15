@@ -17,3 +17,5 @@ class PromptTemplateName(Enum):
     EXECUTOR_REQUIREMENTS = "executor_requirements"
     FORMAT_TO_SCHEMA = "format_to_schema"
     GLOBAL_REQUIREMENTS_CONTEXT = "global_requirements_context"
+    REQUIREMENT_TREE_BUILD = "requirement_tree_build"
+    RELEVANT_REQUIREMENTS_CONTEXT = "relevant_requirements_context"

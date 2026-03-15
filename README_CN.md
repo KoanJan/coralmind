@@ -395,8 +395,31 @@ agent = Agent(
     planner_llm=planning_llm,      # 规划环节使用更强的模型
     executor_llm=execution_llm,    # 执行环节使用更快的模型
     validator_llm=validation_llm,  # 验证环节使用专门的模型
+    embedding_llm=embedding_llm,   # 语义搜索使用的嵌入模型
 )
 ```
+
+### 智能需求匹配
+
+对于大型需求文档，coralmind 会自动构建结构化的需求树，并使用语义搜索为每个执行节点提供相关的需求片段，显著降低 token 成本：
+
+```python
+# 当需求文档较大（>1000字符）时，embedding_llm 启用智能匹配
+agent = Agent(
+    default_llm=default_llm,
+    embedding_llm=embedding_llm,   # 可选：为大型需求启用语义搜索
+)
+```
+
+**优势**：
+- Token 成本降低：每个节点执行时只包含相关的需求片段
+- 自动降级：未配置 embedding_llm 或需求较小时，自动使用完整需求
+- 持久化缓存：需求树按任务模板缓存，支持跨会话复用
+
+**鲁棒性特性**：
+- **自动修复**：当 LLM 未能覆盖所有需求片段时，自动添加 "Other" 兜底节点
+- **智能警告**：仅当缺失比例超过 5% 时才记录警告日志（避免 LLM 小幅误差产生噪音）
+- **优雅降级**：当语义搜索找不到相关内容时，返回 "Other" 节点内容作为兜底
 
 ### 自定义策略
 

@@ -33,6 +33,11 @@ VALIDATION_ALIGNMENT_CHECK = """4. Does the output align with the original globa
 Original Global Requirements:
 {global_requirements}"""
 
+VALIDATION_RELEVANT_CHECK = """4. Does the output align with the relevant task requirements? If the output deviates from the specified requirements, it should be rejected.
+
+Relevant Task Requirements:
+{relevant_requirements}"""
+
 SCORE_RETURN_FORMAT = """# Return Format
 
 Please return the evaluation result in the following JSON format:
@@ -49,7 +54,7 @@ def build_validation_messages(
     requirements: str,
     output: str | dict[str, str],
     output_names: dict[str, str] | None,
-    global_requirements: str | None = None,
+    relevant_requirements: str | None = None,
 ) -> list[str]:
     """Build messages for validating task output."""
     messages: list[str] = []
@@ -66,8 +71,8 @@ def build_validation_messages(
         output_names_text = VALIDATION_EXPECTED_OUTPUT_FIELDS.format(output_names_text=output_names_text_content)
         output_text = json.dumps(output, indent=2, ensure_ascii=False)
 
-    if global_requirements:
-        alignment_check = VALIDATION_ALIGNMENT_CHECK.format(global_requirements=global_requirements)
+    if relevant_requirements:
+        alignment_check = VALIDATION_RELEVANT_CHECK.format(relevant_requirements=relevant_requirements)
     else:
         alignment_check = ""
 

@@ -114,3 +114,47 @@ This step is part of a larger task. The original overall requirement is:
 
 Please keep this global goal in mind while executing the current step.
 """
+
+REQUIREMENT_TREE_BUILD = """# Task
+
+Build a structured tree from the following text segments. Each segment has an ID and content.
+
+# Text Segments
+
+{lines_text}
+
+# Your Task
+
+Organize these segments into a hierarchical tree structure:
+1. Create meaningful categories and subcategories
+2. Each leaf node should reference specific segment IDs via `scope`
+3. Non-leaf nodes should have `children`, leaf nodes should have `scope`
+4. `scope` format: `[[start_id, end_id], ...]` for continuous ranges
+5. `name` should be concise, `description` should explain the node's content
+
+**IMPORTANT**: The root node MUST be a non-leaf node (with `children`), and all leaf nodes' scopes combined MUST cover ALL segment IDs from 1 to the last segment ID. No segment should be lost.
+
+# Return Format (JSON Schema)
+
+```json
+{{
+  "name": "string - concise name for this node",
+  "description": "string - description of what this node covers",
+  "children": [...],  // for non-leaf nodes, list of child nodes
+  "scope": [[1, 5], [10, 15]]  // for leaf nodes only, segment ID ranges
+}}
+```
+
+Return ONLY the root node of the tree (which MUST have children). The tree should have 2-4 levels of depth.
+"""
+
+RELEVANT_REQUIREMENTS_CONTEXT = """# Relevant Task Requirements
+
+The following requirements are relevant to the current step:
+
+```
+{relevant_requirements}
+```
+
+Please follow these requirements while executing the current task.
+"""

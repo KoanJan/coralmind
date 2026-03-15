@@ -223,7 +223,7 @@ class Executor:
             language: Language | None = None,
             last_output: str | dict[str, str] | None = None,
             reject_reason: str | None = None,
-            global_requirements: str | None = None
+            relevant_requirements: str | None = None
     ) -> LLMResponse[str] | LLMResponse[dict[str, str]]:
         """
         Execute task
@@ -235,7 +235,7 @@ class Executor:
             language: Language for prompts
             last_output: Output from last execution (for redo scenario)
             reject_reason: Reason for rejection last time (for redo scenario)
-            global_requirements: Original overall task requirements for context
+            relevant_requirements: Relevant requirements for context (from requirement tree or global fallback)
 
         Returns:
             LLMResponse[str]: When output_names is None
@@ -249,13 +249,13 @@ class Executor:
         m_names: list[str] = []
         messages: list[str] = []
 
-        if global_requirements:
-            global_context = build_prompt(
-                PromptTemplateName.GLOBAL_REQUIREMENTS_CONTEXT,
+        if relevant_requirements:
+            relevant_context = build_prompt(
+                PromptTemplateName.RELEVANT_REQUIREMENTS_CONTEXT,
                 language=language,
-                global_requirements=global_requirements
+                relevant_requirements=relevant_requirements
             )
-            messages.append(global_context)
+            messages.append(relevant_context)
 
         for name, content in materials.items():
             m_names.append(name)
@@ -317,7 +317,7 @@ class Validator:
             output_names: dict[str, str],
             output: str | dict[str, str],
             language: Language | None = None,
-            global_requirements: str | None = None
+            relevant_requirements: str | None = None
     ) -> LLMResponse[ValidateResult]:
         """
         Validate execution result
@@ -332,7 +332,7 @@ class Validator:
             output_names: Expected output field definitions
             output: Actual output result
             language: Language for prompts
-            global_requirements: Original overall task requirements for alignment check
+            relevant_requirements: Relevant requirements for alignment check (from requirement tree or global fallback)
 
         Returns:
             LLMResponse[ValidateResult]: Response containing validation result and token cost
@@ -348,7 +348,7 @@ class Validator:
                 model="",
             )
 
-        messages = build_validation_messages(language, materials, requirements, output, output_names, global_requirements)
+        messages = build_validation_messages(language, materials, requirements, output, output_names, relevant_requirements)
 
         result = call_llm(self.llm, as_user_messages(messages), ValidateResult, self.formatter_llm)
         return cast(LLMResponse[ValidateResult], result)

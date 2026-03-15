@@ -127,7 +127,15 @@ def main():
         api_key=os.environ.get("DEFAULT_API_KEY", ""),
     )
 
-    agent = Agent(default_llm=llm)
+    embedding_llm = None
+    if os.environ.get("EMBEDDING_API_KEY"):
+        embedding_llm = LLMConfig(
+            model_id=os.environ.get("EMBEDDING_MODEL_ID", "text-embedding-3-small"),
+            base_url=os.environ.get("EMBEDDING_BASE_URL", "https://api.openai.com/v1"),
+            api_key=os.environ.get("EMBEDDING_API_KEY", ""),
+        )
+
+    agent = Agent(default_llm=llm, embedding_llm=embedding_llm)
 
     materials = [
         Material(name=name, content=f"【{name}】的具体内容...")

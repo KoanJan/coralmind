@@ -5,6 +5,7 @@ from .connection import (
     set_db_path,
 )
 from .plan import PlanRO, PlanStorage
+from .requirement_tree import RequirementTreeRO, RequirementTreeStorage
 from .task_template import TaskTemplateRO, TaskTemplateStorage
 
 _initialized = False
@@ -16,6 +17,7 @@ def init_storage() -> None:
     if not _initialized:
         TaskTemplateStorage.init_table()
         PlanStorage.init_table()
+        RequirementTreeStorage.init_table()
         _initialized = True
 
 
@@ -28,5 +30,7 @@ __all__ = [
     "PlanStorage",
     "TaskTemplateRO",
     "TaskTemplateStorage",
+    "RequirementTreeRO",
+    "RequirementTreeStorage",
     "init_storage",
 ]

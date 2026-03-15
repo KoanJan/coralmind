@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.9] - 2026-03-15
+
+### Added
+
+- **Intelligent Requirements Matching**: Structured requirement tree with semantic search
+  - Automatic requirement tree construction for large requirements (>1000 chars)
+  - Vector similarity matching to provide only relevant requirement sections to each node
+  - Significant token cost reduction for complex tasks
+  - Persistent caching of requirement trees by task template
+
+- **Robustness Features for Requirement Tree**:
+  - Auto-repair: Automatically adds "Other" fallback node when LLM misses requirement segments
+  - Smart warnings: Only logs warnings when missing ratio exceeds 5% threshold
+  - Graceful degradation: Returns "Other" node content when semantic search finds no matches
+
+### Changed
+
+- **Requirements Splitting**: Simplified to newline-based splitting (was sentence-based)
+  - Preserves semantic integrity of each line
+  - Respects user's original document structure
+
+- **Agent Configuration**: Added `embedding_llm` parameter for semantic search capability
+  - Optional: Falls back to full requirements mode when not configured
+  - Lazy initialization: Only builds tree when first needed
+
 ## [0.0.8] - 2026-03-14
 
 ### Added

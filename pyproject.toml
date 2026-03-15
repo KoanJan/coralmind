@@ -1,6 +1,6 @@
 [project]
 name = "coralmind"
-version = "0.0.8"
+version = "0.0.9"
 description = "A self-evolving AI Agent framework with autonomous planning capabilities"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,7 +19,8 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.0",
-    "openai>=1.0"
+    "openai>=1.0",
+    "numpy>=1.20"
 ]
 
 [project.optional-dependencies]

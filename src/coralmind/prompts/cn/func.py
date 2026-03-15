@@ -33,6 +33,11 @@ VALIDATION_ALIGNMENT_CHECK = """4. 输出是否与原始全局要求保持一致
 原始全局要求：
 {global_requirements}"""
 
+VALIDATION_RELEVANT_CHECK = """4. 输出是否与相关任务要求保持一致？如果输出偏离了指定要求，应当拒绝。
+
+相关任务要求：
+{relevant_requirements}"""
+
 SCORE_RETURN_FORMAT = """# 返回格式
 
 请以以下 JSON 格式返回评估结果：
@@ -49,7 +54,7 @@ def build_validation_messages(
     requirements: str,
     output: str | dict[str, str],
     output_names: dict[str, str] | None,
-    global_requirements: str | None = None,
+    relevant_requirements: str | None = None,
 ) -> list[str]:
     """Build messages for validating task output."""
     messages: list[str] = []
@@ -66,8 +71,8 @@ def build_validation_messages(
         output_names_text = VALIDATION_EXPECTED_OUTPUT_FIELDS.format(output_names_text=output_names_text_content)
         output_text = json.dumps(output, indent=2, ensure_ascii=False)
 
-    if global_requirements:
-        alignment_check = VALIDATION_ALIGNMENT_CHECK.format(global_requirements=global_requirements)
+    if relevant_requirements:
+        alignment_check = VALIDATION_RELEVANT_CHECK.format(relevant_requirements=relevant_requirements)
     else:
         alignment_check = ""
 

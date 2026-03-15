@@ -395,8 +395,31 @@ agent = Agent(
     planner_llm=planning_llm,      # Use stronger model for planning
     executor_llm=execution_llm,    # Use faster model for execution
     validator_llm=validation_llm,  # Use specialized model for validation
+    embedding_llm=embedding_llm,   # Use embedding model for semantic search
 )
 ```
+
+### Intelligent Requirements Matching
+
+For large requirements documents, coralmind automatically builds a structured requirement tree and uses semantic search to provide only relevant sections to each execution node, significantly reducing token costs:
+
+```python
+# When requirements is large (>1000 chars), embedding_llm enables intelligent matching
+agent = Agent(
+    default_llm=default_llm,
+    embedding_llm=embedding_llm,   # Optional: enables semantic search for large requirements
+)
+```
+
+**Benefits**:
+- Token cost reduction: Only relevant requirement sections are included in each node execution
+- Automatic fallback: When embedding_llm is not configured or requirements is small, full requirements are used
+- Persistent caching: Requirement trees are cached by task template for reuse
+
+**Robustness Features**:
+- **Auto-repair**: When LLM fails to cover all requirement segments, an "Other" fallback node is automatically added
+- **Smart warnings**: Coverage warnings are only logged when missing ratio exceeds 5% (avoiding noise from minor LLM variations)
+- **Graceful degradation**: When semantic search finds no relevant content, the "Other" node content is returned as fallback
 
 ### Custom Strategy
 

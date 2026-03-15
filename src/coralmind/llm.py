@@ -12,7 +12,7 @@ from .prompts import PromptTemplateName, build_prompt
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["LLMConfig", "LLMResponse", "TokenCost", "call_llm", "as_user_messages", "build_user_message", "build_assistant_message"]
+__all__ = ["LLMConfig", "LLMResponse", "TokenCost", "call_llm", "as_user_messages", "build_user_message", "build_assistant_message", "get_embedding"]
 
 
 class LLMConfig(BaseModel):
@@ -250,3 +250,32 @@ def _fix_model_json_by_llm(llm: LLMConfig, json_string: str, model_type: type[Ba
 
     fixed_json = _call_llm(llm, [build_user_message(prompt)]).content
     return _quick_fix_object_json(fixed_json)
+
+
+def get_embedding(llm: LLMConfig, text: str) -> list[float]:
+    """
+    Get embedding vector for text using embedding API.
+
+    Args:
+        llm: LLM configuration (uses model_id as embedding model)
+        text: Text to embed
+
+    Returns:
+        Embedding vector as list of floats
+    """
+    client = OpenAI(
+        api_key=llm.api_key,
+        base_url=llm.base_url,
+        timeout=llm.timeout,
+    )
+
+    logger.debug(f"Getting embedding for text (length={len(text)}) using model: {llm.model_id}")
+
+    response = client.embeddings.create(
+        model=llm.model_id,
+        input=text,
+    )
+
+    embedding = response.data[0].embedding
+    logger.debug(f"Embedding obtained, dimension={len(embedding)}")
+    return embedding

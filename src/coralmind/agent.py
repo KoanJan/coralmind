@@ -3,6 +3,7 @@ import logging
 from .exceptions import ExecutionError, PlanValidationError
 from .llm import LLMConfig, LLMResponse, TokenCost
 from .model import InputFieldSourceType, Plan, PlanAdvice, Task, TaskTemplate
+from .requirements_finder import RelevantRequirementsFinder
 from .storage import PlanStorage, TaskTemplateStorage, init_storage
 from .strategy.advising import BasePlanStrategy, ThresholdStrategy
 from .worker import Evaluator, Executor, OutputFormatter, PlanAdvisor, Planner, Validator
@@ -23,12 +24,15 @@ class Agent:
             planner_llm: LLMConfig | None = None,
             executor_llm: LLMConfig | None = None,
             validator_llm: LLMConfig | None = None,
+            embedding_llm: LLMConfig | None = None,
             advising_strategy: BasePlanStrategy | None = None,
             max_retry_times_per_node: int = 3,
             max_retry_times_for_plan: int = 3,
     ):
         init_storage()
 
+        self.default_llm = default_llm
+        self.embedding_llm = embedding_llm
         self.advising_strategy = advising_strategy if advising_strategy else _DEFAULT_STRATEGY
 
         self.plan_advisor = PlanAdvisor()
@@ -92,6 +96,14 @@ class Agent:
         task_template_id = self._get_task_template_id(task_template)
         logger.debug(f"Task template ID: {task_template_id}")
 
+        finder = RelevantRequirementsFinder(
+            self.default_llm,
+            self.embedding_llm,
+            task.requirements,
+            task_template_id,
+            language=task.language
+        )
+
         advice = self.plan_advisor.make_advice(task_template_id, self.advising_strategy)
         logger.debug(f"Plan advice: type={advice.type if advice else None}")
 
@@ -99,7 +111,7 @@ class Agent:
         plan = plan_response.content
         logger.info(f"Plan generated: {len(plan.nodes)} nodes, token_cost={plan_response.token_cost.total}")
 
-        orchestrate_response = self._orchestrate(task, plan)
+        orchestrate_response = self._orchestrate(task, plan, finder)
         output = orchestrate_response.content
         logger.info(f"Orchestration completed: output_length={len(output)}, token_cost={orchestrate_response.token_cost.total}")
 
@@ -180,19 +192,14 @@ class Agent:
             total_token_cost.prompt, total_token_cost.completion, total_token_cost.total
         )
 
-    @staticmethod
-    def _generate_global_requirements(task: Task) -> str:
-        materials_section = "".join([f"## {m.name}\n{m.content}\n\n" for m in task.materials])
-        global_requirements = f"{materials_section}\n{task.requirements}"
-        return global_requirements
-
-    def _orchestrate(self, task: Task, plan: Plan) -> LLMResponse[str]:
+    def _orchestrate(self, task: Task, plan: Plan, finder: RelevantRequirementsFinder) -> LLMResponse[str]:
         """
         Orchestrate the entire workflow according to the plan
 
         Args:
             task: Task containing materials, requirements and language
             plan: Execution plan
+            finder: RelevantRequirementsFinder for retrieving relevant requirements
 
         Returns:
             LLMResponse[str]: Response containing final output and accumulated token cost
@@ -207,7 +214,6 @@ class Agent:
         if (not plan.nodes) or len(plan.nodes) == 0:
             raise PlanValidationError("Plan contains 0 nodes")
 
-        global_requirements = self._generate_global_requirements(task)
         for i, plan_node in enumerate(plan.nodes):
             logger.debug(f"Executing node {i+1}/{len(plan.nodes)}: {plan_node.id} (is_final={plan_node.is_final_node})")
 
@@ -224,17 +230,25 @@ class Agent:
 
             logger.debug(f"Node {plan_node.id}: input_materials={list(input_materials.keys())}")
 
+            relevant_requirements = finder.find(plan_node.requirements)
+
             output_names = plan_node.output_names or {}
             for attempt in range(self.max_retry_times_per_node):
                 logger.debug(f"Node {plan_node.id}: execution attempt {attempt + 1}/{self.max_retry_times_per_node}")
 
-                exec_response = self.executor.execute(input_materials, plan_node.requirements, output_names, language=task.language, global_requirements=global_requirements)
+                exec_response = self.executor.execute(
+                    input_materials, plan_node.requirements, output_names,
+                    language=task.language,
+                    relevant_requirements=relevant_requirements
+                )
                 total_token_cost = total_token_cost + exec_response.token_cost
                 cur_output = exec_response.content
 
                 if output_names:
                     validate_response = self.validator.validate_execution(
-                        input_materials, plan_node.requirements, output_names, cur_output, language=task.language, global_requirements=global_requirements
+                        input_materials, plan_node.requirements, output_names, cur_output,
+                        language=task.language,
+                        relevant_requirements=relevant_requirements
                     )
                     total_token_cost = total_token_cost + validate_response.token_cost
 
@@ -246,7 +260,8 @@ class Agent:
                         exec_response = self.executor.execute(
                             input_materials, plan_node.requirements, output_names,
                             last_output=cur_output, reject_reason=validate_response.content.reason,
-                            language=task.language, global_requirements=global_requirements
+                            language=task.language,
+                            relevant_requirements=relevant_requirements
                         )
                         total_token_cost = total_token_cost + exec_response.token_cost
                         cur_output = exec_response.content

@@ -106,7 +106,13 @@ def main():
         api_key=os.environ.get("VALIDATOR_API_KEY", ""),
     )
 
-    agent = Agent(default_llm=llm, planner_llm=planner_llm, executor_llm=planner_llm, validator_llm=validator_llm)
+    embedding_llm = LLMConfig(
+        model_id=os.environ.get("EMBEDDING_MODEL_ID", "qwen-plus-latest"),
+        base_url=os.environ.get("EMBEDDING_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        api_key=os.environ.get("EMBEDDING_API_KEY", ""),
+    )
+
+    agent = Agent(default_llm=llm, planner_llm=planner_llm, executor_llm=planner_llm, validator_llm=validator_llm, embedding_llm=embedding_llm)
 
     materials = [
         Material(name="题材类型", content="诸神擂台"),
