@@ -1,17 +1,3 @@
-FIX_DICT_STRUCTURE = """The following JSON has a structure error:
-
-```json
-{json_string}
-```
-
-Error: {error_msg}
-
-Please fix the JSON and return ONLY the corrected JSON. Requirements:
-1. The output must be a JSON object (dict), not an array
-2. All values must be strings (str), not arrays or nested objects
-3. If you need to represent multiple items, use newline-separated strings or JSON-stringified strings
-4. Do not include any markdown formatting or explanations, just the raw JSON"""
-
 FIX_MODEL_VALIDATION = """The following JSON has validation errors:
 
 ```json

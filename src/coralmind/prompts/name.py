@@ -7,7 +7,6 @@ class PromptName(Enum):
 
 
 class PromptTemplateName(Enum):
-    FIX_DICT_STRUCTURE = "fix_dict_structure"
     FIX_MODEL_VALIDATION = "fix_model_validation"
     OUTPUT_FORMAT_WITH_NAMES = "output_format_with_names"
     OUTPUT_FORMAT_WITHOUT_NAMES = "output_format_without_names"

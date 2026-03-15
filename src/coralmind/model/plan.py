@@ -1,8 +1,9 @@
 from enum import Enum, IntEnum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
-__all__ = ["InputFieldSourceType", "InputField", "PlanNode", "Plan", "PlanAdvice", "PlanAdviceType"]
+__all__ = ["InputFieldSourceType", "InputField", "OutputType", "OutputConstraints", "PlanNode", "Plan", "PlanAdvice", "PlanAdviceType"]
 
 
 class InputFieldSourceType(str, Enum):
@@ -29,14 +30,58 @@ class InputField(BaseModel):
     )
 
 
+class OutputType(str, Enum):
+    """
+    Output type
+    """
+    TEXT = "text"
+    MODEL = "model"
+
+
+class OutputConstraints(BaseModel):
+    """
+    Output constraints for validation
+
+    Validation has two levels:
+    - Format validation: output_type + fields (for MODEL type, dynamically create BaseModel for validation)
+    - Semantic validation: content_spec (for both types, validate content matches expectation)
+    """
+    output_type: OutputType = Field(description="Output format type: text or model")
+    fields: dict[str, str] | None = Field(
+        default=None,
+        description="Field definitions for MODEL type (field_name -> field_description), used for format validation"
+    )
+    content_spec: str = Field(
+        description="Content specification for semantic validation (expected output content description)"
+    )
+
+    def get_model_class(self, model_name: str = "DynamicOutput") -> type[BaseModel] | None:
+        """
+        Get the dynamically created BaseModel class for MODEL type output
+
+        Args:
+            model_name: Name for the dynamically created model
+
+        Returns:
+            A dynamically created BaseModel class, or None if output_type is TEXT or fields is None
+        """
+        if self.output_type != OutputType.MODEL or self.fields is None:
+            return None
+
+        field_definitions: dict[str, tuple[type[str], Any]] = {}
+        for field_name, field_description in self.fields.items():
+            field_definitions[field_name] = (str, Field(description=field_description))
+
+        return create_model(model_name, __base__=BaseModel, **field_definitions)  # type: ignore[call-overload,no-any-return]
+
+
 class PlanNode(BaseModel):
     """Plan node description"""
     id: str = Field(description="Node ID, unique within plan")
     input_fields: list[InputField] = Field(description="Describe what inputs the node needs")
     requirements: str = Field(description="Describe the task this node undertakes")
-    output_names: dict[str, str] | None = Field(
-        default=None,
-        description="Describe what fields the node outputs and their definitions (null when is_final_node=True, example: {'a': 'description of a'})"
+    output_constraints: OutputConstraints = Field(
+        description="Output constraints for validation (format and semantic validation)"
     )
     is_final_node: bool = Field(description="Whether this is the final node")
 

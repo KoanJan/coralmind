@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, Generic, TypeVar, cast, overload
+from typing import Generic, TypeVar, cast, overload
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -66,11 +65,6 @@ def call_llm(llm: LLMConfig, messages: list[dict[str, str]], output_type: type[s
 
 
 @overload
-def call_llm(llm: LLMConfig, messages: list[dict[str, str]], output_type: type[dict[Any, Any]],
-             formatter_llm: LLMConfig | None = None) -> LLMResponse[dict[str, str]]: ...
-
-
-@overload
 def call_llm(llm: LLMConfig, messages: list[dict[str, str]], output_type: type[BaseModel],
              formatter_llm: LLMConfig | None = None) -> LLMResponse[BaseModel]: ...
 
@@ -78,9 +72,9 @@ def call_llm(llm: LLMConfig, messages: list[dict[str, str]], output_type: type[B
 def call_llm(
         llm: LLMConfig,
         messages: list[dict[str, str]],
-        output_type: type[str] | type[dict[Any, Any]] | type[BaseModel],
+        output_type: type[str] | type[BaseModel],
         formatter_llm: LLMConfig | None = None
-) -> LLMResponse[str] | LLMResponse[dict[str, str]] | LLMResponse[BaseModel]:
+) -> LLMResponse[str] | LLMResponse[BaseModel]:
     """Call LLM"""
 
     raw_response = _call_llm(llm, messages)
@@ -93,12 +87,8 @@ def call_llm(
     if not formatter_llm:
         formatter_llm = llm
 
-    if output_type is dict:
-        dict_content = _to_dict(formatter_llm, fixed_content)
-        return LLMResponse(content=dict_content, token_cost=raw_response.token_cost, model=raw_response.model)
-    else:
-        model_content = _to_model(formatter_llm, fixed_content, cast(type[BaseModel], output_type))
-        return LLMResponse(content=model_content, token_cost=raw_response.token_cost, model=raw_response.model)
+    model_content = _to_model(formatter_llm, fixed_content, cast(type[BaseModel], output_type))
+    return LLMResponse(content=model_content, token_cost=raw_response.token_cost, model=raw_response.model)
 
 
 def _call_llm(llm: LLMConfig, messages: list[dict[str, str]]) -> LLMResponse[str]:
@@ -136,74 +126,6 @@ def _quick_fix_object_json(json_str: str) -> str:
     left_index = json_str.find('{')
     right_index = json_str.rfind('}')
     return json_str[left_index: right_index + 1] if (-1 < left_index < right_index) else json_str
-
-
-def _to_dict(llm: LLMConfig, json_string: str, max_retries: int = 2) -> dict[str, str]:
-    """
-    Convert JSON string to dict[str, str] with retry mechanism.
-
-    When structure is incorrect (e.g., nested objects, arrays),
-    use LLM to fix it with detailed error information.
-    """
-    current_json = json_string
-
-    for attempt in range(max_retries + 1):
-        try:
-            obj = json.loads(current_json)
-
-            if not isinstance(obj, dict):
-                error_msg = f"Expected JSON object (dict), got {type(obj).__name__}. The output must be a flat dictionary with string values only."
-                if attempt < max_retries:
-                    logger.debug(f"Structure error (attempt {attempt + 1}): {error_msg}")
-                    current_json = _fix_dict_structure_by_llm(llm, current_json, error_msg)
-                    continue
-                raise LLMError(error_msg, model=llm.model_id)
-
-            if not _is_dict_str_str(obj):
-                non_str_items = [(k, type(v).__name__) for k, v in obj.items() if not isinstance(v, str)]
-                error_msg = f"Expected dict[str, str], but some values are not strings: {non_str_items}. All values must be plain strings, not arrays or nested objects."
-                if attempt < max_retries:
-                    logger.debug(f"Structure error (attempt {attempt + 1}): {error_msg}")
-                    current_json = _fix_dict_structure_by_llm(llm, current_json, error_msg)
-                    continue
-                raise LLMError(error_msg, model=llm.model_id)
-
-            return cast(dict[str, str], obj)
-
-        except json.JSONDecodeError as e:
-            if attempt < max_retries:
-                logger.debug(f"JSON parse error (attempt {attempt + 1}): {e}")
-                current_json = _fix_dict_structure_by_llm(llm, current_json, f"JSON parse error: {e}")
-                continue
-            raise LLMError(f"Failed to parse JSON after {max_retries} retries: {e}", model=llm.model_id) from e
-
-    raise LLMError(f"Failed to get valid dict[str, str] after {max_retries} retries", model=llm.model_id)
-
-
-def _fix_dict_structure_by_llm(llm: LLMConfig, json_string: str, error_msg: str) -> str:
-    """
-    Use LLM to fix JSON structure errors for dict[str, str] conversion.
-
-    Args:
-        llm: LLM configuration
-        json_string: The problematic JSON string
-        error_msg: Description of the error
-
-    Returns:
-        Fixed JSON string that should be a dict with string values
-    """
-    prompt = build_prompt(
-        PromptTemplateName.FIX_DICT_STRUCTURE,
-        json_string=json_string,
-        error_msg=error_msg
-    )
-
-    fixed_json = _call_llm(llm, [build_user_message(prompt)]).content
-    return _quick_fix_object_json(fixed_json)
-
-
-def _is_dict_str_str(d: dict) -> bool:
-    return all(isinstance(k, str) and isinstance(v, str) for k, v in d.items())
 
 
 def _to_model(llm: LLMConfig, json_string: str, model_type: type[BaseModel], max_retries: int = 2) -> BaseModel:

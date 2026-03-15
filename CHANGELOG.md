@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.10] - 2026-03-16
+
+### Changed
+
+- **OutputConstraints Refactoring**: Separated format and semantic validation
+  - `output_type`: TEXT or MODEL (renamed from STR/DICT for better semantics)
+  - `fields`: Field definitions for MODEL type (format validation)
+  - `content_spec`: Content specification for semantic validation (now required)
+
+- **Strong Typing with Dynamic BaseModel**: Replaced `dict[str, str]` with dynamically generated BaseModel
+  - Added `OutputConstraints.get_model_class()` method for dynamic model creation
+  - Better type safety and validation throughout the codebase
+  - Removed all dict-related functions (`_to_dict`, `_fix_dict_structure_by_llm`)
+
+- **Required Fields**: Made `output_constraints` and `content_spec` mandatory
+  - Every node must have explicit output constraints
+  - Every node must have content specification for semantic validation
+
+- **Prompt Updates**: Updated `PLAN_STANDARD` prompt to use new `output_constraints` structure
+  - Clear guidance for LLM to use MODEL type for intermediate nodes
+  - TEXT type for final nodes
+  - Includes `content_spec` for semantic validation
+
+### Removed
+
+- **Dict Support**: Removed all `dict[str, str]` support from `call_llm`
+  - Simplified type system to `str | BaseModel`
+  - Removed `FIX_DICT_STRUCTURE` template and related functions
+
 ## [0.0.9] - 2026-03-15
 
 ### Added

@@ -1,14 +1,13 @@
 from importlib import import_module
 from typing import Any
 
+from pydantic import BaseModel
+
 from ..model import Language, Task
 from .cn import EVALUATION_STANDARD as EVALUATION_STANDARD_CN
 from .cn import PLAN_STANDARD as PLAN_STANDARD_CN
 from .cn.template import (
     EXECUTOR_REQUIREMENTS as EXECUTOR_REQUIREMENTS_CN,
-)
-from .cn.template import (
-    FIX_DICT_STRUCTURE as FIX_DICT_STRUCTURE_CN,
 )
 from .cn.template import (
     FIX_MODEL_VALIDATION as FIX_MODEL_VALIDATION_CN,
@@ -44,9 +43,6 @@ from .en import EVALUATION_STANDARD as EVALUATION_STANDARD_EN
 from .en import PLAN_STANDARD as PLAN_STANDARD_EN
 from .en.template import (
     EXECUTOR_REQUIREMENTS as EXECUTOR_REQUIREMENTS_EN,
-)
-from .en.template import (
-    FIX_DICT_STRUCTURE as FIX_DICT_STRUCTURE_EN,
 )
 from .en.template import (
     FIX_MODEL_VALIDATION as FIX_MODEL_VALIDATION_EN,
@@ -105,7 +101,6 @@ _STATIC_PROMPTS = {
 
 _TEMPLATE_PROMPTS = {
     Language.EN: {
-        PromptTemplateName.FIX_DICT_STRUCTURE: FIX_DICT_STRUCTURE_EN,
         PromptTemplateName.FIX_MODEL_VALIDATION: FIX_MODEL_VALIDATION_EN,
         PromptTemplateName.OUTPUT_FORMAT_WITH_NAMES: OUTPUT_FORMAT_WITH_NAMES_EN,
         PromptTemplateName.OUTPUT_FORMAT_WITHOUT_NAMES: OUTPUT_FORMAT_WITHOUT_NAMES_EN,
@@ -119,7 +114,6 @@ _TEMPLATE_PROMPTS = {
         PromptTemplateName.RELEVANT_REQUIREMENTS_CONTEXT: RELEVANT_REQUIREMENTS_CONTEXT_EN,
     },
     Language.CN: {
-        PromptTemplateName.FIX_DICT_STRUCTURE: FIX_DICT_STRUCTURE_CN,
         PromptTemplateName.FIX_MODEL_VALIDATION: FIX_MODEL_VALIDATION_CN,
         PromptTemplateName.OUTPUT_FORMAT_WITH_NAMES: OUTPUT_FORMAT_WITH_NAMES_CN,
         PromptTemplateName.OUTPUT_FORMAT_WITHOUT_NAMES: OUTPUT_FORMAT_WITHOUT_NAMES_CN,
@@ -192,8 +186,9 @@ def build_validation_messages(
     language: Language,
     materials: dict[str, str],
     requirements: str,
-    output: str | dict[str, str],
+    output: str | BaseModel,
     output_names: dict[str, str] | None = None,
+    output_what: str | None = None,
     relevant_requirements: str | None = None,
 ) -> list[str]:
     """
@@ -203,8 +198,9 @@ def build_validation_messages(
         language: Language for prompts
         materials: Dictionary of material name to content
         requirements: Task requirements
-        output: Actual output (string or dict)
-        output_names: Expected output field definitions
+        output: Actual output (string or BaseModel)
+        output_names: Expected output field definitions (for BaseModel output)
+        output_what: Expected output description (for str output, defaults to requirements)
         relevant_requirements: Relevant requirements for alignment check (from requirement tree or global fallback)
 
     Returns:
@@ -212,7 +208,7 @@ def build_validation_messages(
     """
     module_prefix = _get_module_prefix(language)
     func_module = import_module(f".{module_prefix}.func", package=__name__)
-    result: list[str] = func_module.build_validation_messages(materials, requirements, output, output_names, relevant_requirements)
+    result: list[str] = func_module.build_validation_messages(materials, requirements, output, output_names, output_what, relevant_requirements)
     return result
 
 

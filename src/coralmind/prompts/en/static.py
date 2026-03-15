@@ -101,7 +101,7 @@ A Plan contains a nodes list, where each PlanNode includes the following fields:
 | id | string | Node identifier, unique within the plan, recommended to use semantic names like "analyze", "summarize" |
 | input_fields | list[InputField] | Describes what input information this node requires |
 | requirements | string | Describes the specific task this node undertakes |
-| output_names | dict[str, str] \| null | Output fields and their definitions, format: `{"field_name": "field_definition"}` |
+| output_constraints | OutputConstraints | Output constraints, including output type, field definitions, and content specification |
 | is_final_node | boolean | Whether this is the final node |
 
 InputField structure:
@@ -112,6 +112,14 @@ InputField structure:
 | material_name | string | When source_type is original_material, specifies the material name |
 | output_of_another_node | object | When source_type is output_of_another_node, specifies the dependent node ID and output field name |
 
+OutputConstraints structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| output_type | enum | Output type: "text" (plain text) or "model" (structured model) |
+| fields | dict[str, str] \| null | When output_type is model, defines output fields and their descriptions, format: `{"field_name": "field_description"}` |
+| content_spec | string | Content specification, describes expected output content characteristics for semantic validation |
+
 ### 3. Planning Rules
 
 1. **Node Count**: The plan must contain at least 1 node
@@ -121,19 +129,23 @@ InputField structure:
 3. **Final Node**:
    - There must be exactly one final node, located at the end of the nodes list
    - The final node's `is_final_node` must be `true`
-   - The final node's `output_names` must be `null`
+   - The final node's `output_constraints.output_type` should be `text`
+   - The final node's `output_constraints.fields` should be `null`
 
 4. **Intermediate Nodes**:
    - Non-final nodes have `is_final_node` as `false`
-   - Non-final nodes must define at least one output field (`output_names` not empty)
-   - Output field content format must be string (str), meaning each node's output dict type is `dict[str, str]` not `dict[str, Any]`
-   - In `output_names` field descriptions, clearly indicate that output content type is string
+   - Non-final nodes should use `model` type output (`output_type` is `model`), so subsequent nodes can reference specific output fields
+   - Must define at least one output field (`fields` not empty)
+   - Output field content format must be string (str), meaning each node's output type is `dict[str, str]` not `dict[str, Any]`
+   - In `fields` field descriptions, clearly indicate that output content type is string
 
 5. **Input Sources**:
    - When using `original_material` type, `material_name` must be a name that exists in user-provided materials
    - When using `output_of_another_node` type, the referenced node must exist and appear before the current node
 
 6. **ID Uniqueness**: All node IDs must be unique within the plan
+
+7. **Content Specification**: Each node's `content_spec` should clearly describe expected output content characteristics for validating whether output meets expectations
 
 ### 4. Design Principles
 
@@ -159,9 +171,13 @@ InputField structure:
         }
       ],
       "requirements": "Extract all key information from the article, including main points, data, conclusions, etc.",
-      "output_names": {
-        "key_points": "List of extracted key points (string type)",
-        "data_facts": "Data and facts from the article (string type)"
+      "output_constraints": {
+        "output_type": "model",
+        "fields": {
+          "key_points": "List of extracted key points (string type)",
+          "data_facts": "Data and facts from the article (string type)"
+        },
+        "content_spec": "Key information extracted from the article, including main points and data facts"
       },
       "is_final_node": false
     },
@@ -186,7 +202,11 @@ InputField structure:
         }
       ],
       "requirements": "Based on the extracted key points and data facts, write a concise summary",
-      "output_names": null,
+      "output_constraints": {
+        "output_type": "text",
+        "fields": null,
+        "content_spec": "A concise article summary"
+      },
       "is_final_node": true
     }
   ]

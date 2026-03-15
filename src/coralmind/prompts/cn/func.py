@@ -1,11 +1,9 @@
-import json
+from pydantic import BaseModel
 
 from ...model import Task
 from .static import EVALUATION_STANDARD
 
-VALIDATION_EXPECTED_OUTPUT_FIELDS = "# 预期输出字段\n\n{output_names_text}\n"
-
-VALIDATION_PROMPT = """# 任务要求
+VALIDATION_PROMPT_DICT = """# 任务要求
 
 {requirements}
 
@@ -28,12 +26,40 @@ VALIDATION_PROMPT = """# 任务要求
 以 JSON 格式返回：
 {{"passed": true/false, "reason": "失败原因（如果通过则为空字符串）"}}"""
 
+VALIDATION_PROMPT_STR = """# 任务要求
+
+{requirements}
+
+# 预期输出
+
+{output_what}
+
+# 实际输出
+
+{output_text}
+
+# 验证任务
+
+请验证实际输出是否满足以下条件：
+1. 输出是否符合预期输出的描述？
+2. 输出是否满足任务要求？
+3. 输出是否干净，没有无关内容（如自吹自擂、元评论或非交付物的解释说明）？
+{alignment_check}
+
+以 JSON 格式返回：
+{{"passed": true/false, "reason": "失败原因（如果通过则为空字符串）"}}"""
+
 VALIDATION_ALIGNMENT_CHECK = """4. 输出是否与原始全局要求保持一致？如果输出偏离了原始意图，应当拒绝。
 
 原始全局要求：
 {global_requirements}"""
 
-VALIDATION_RELEVANT_CHECK = """4. 输出是否与相关任务要求保持一致？如果输出偏离了指定要求，应当拒绝。
+VALIDATION_RELEVANT_CHECK_DICT = """4. 输出是否与相关任务要求保持一致？如果输出偏离了指定要求，应当拒绝。
+
+相关任务要求：
+{relevant_requirements}"""
+
+VALIDATION_RELEVANT_CHECK_STR = """4. 输出是否与相关任务要求保持一致？如果输出偏离了指定要求，应当拒绝。
 
 相关任务要求：
 {relevant_requirements}"""
@@ -52,8 +78,9 @@ SCORE_RETURN_FORMAT = """# 返回格式
 def build_validation_messages(
     materials: dict[str, str],
     requirements: str,
-    output: str | dict[str, str],
+    output: str | BaseModel,
     output_names: dict[str, str] | None,
+    output_what: str | None = None,
     relevant_requirements: str | None = None,
 ) -> list[str]:
     """Build messages for validating task output."""
@@ -64,24 +91,25 @@ def build_validation_messages(
 
     if isinstance(output, str):
         output_text = output
-        output_names_text = ""
+        if output_what is None:
+            output_what = requirements
+        validation_prompt = VALIDATION_PROMPT_STR.format(
+            requirements=requirements,
+            output_what=output_what,
+            output_text=output_text,
+            alignment_check=VALIDATION_RELEVANT_CHECK_STR.format(relevant_requirements=relevant_requirements) if relevant_requirements else ""
+        )
     else:
         output_name_descriptions = [f"- `{k}`: {v}" for k, v in (output_names or {}).items()]
-        output_names_text_content = "\n".join(output_name_descriptions)
-        output_names_text = VALIDATION_EXPECTED_OUTPUT_FIELDS.format(output_names_text=output_names_text_content)
-        output_text = json.dumps(output, indent=2, ensure_ascii=False)
+        output_names_text = "\n".join(output_name_descriptions)
+        output_text = output.model_dump_json(indent=2)
+        validation_prompt = VALIDATION_PROMPT_DICT.format(
+            requirements=requirements,
+            output_names_text=output_names_text,
+            output_text=output_text,
+            alignment_check=VALIDATION_RELEVANT_CHECK_DICT.format(relevant_requirements=relevant_requirements) if relevant_requirements else ""
+        )
 
-    if relevant_requirements:
-        alignment_check = VALIDATION_RELEVANT_CHECK.format(relevant_requirements=relevant_requirements)
-    else:
-        alignment_check = ""
-
-    validation_prompt = VALIDATION_PROMPT.format(
-        requirements=requirements,
-        output_names_text=output_names_text,
-        output_text=output_text,
-        alignment_check=alignment_check
-    )
     messages.append(validation_prompt)
 
     return messages

@@ -3,10 +3,21 @@ import tempfile
 
 import pytest
 from fake_llm import FakeLLM, create_mock_llm
+from pydantic import BaseModel
 
 from coralmind import Material, PlanValidationError, Task
 from coralmind.llm import LLMResponse
-from coralmind.model import InputField, InputFieldSourceType, Plan, PlanAdvice, PlanAdviceType, PlanNode, TaskTemplate
+from coralmind.model import (
+    InputField,
+    InputFieldSourceType,
+    OutputConstraints,
+    OutputType,
+    Plan,
+    PlanAdvice,
+    PlanAdviceType,
+    PlanNode,
+    TaskTemplate,
+)
 from coralmind.storage import init_storage, set_db_path
 from coralmind.storage.plan import PlanStorage
 from coralmind.worker import Evaluator, Executor, OutputFormatter, PlanAdvisor, Planner, Validator
@@ -35,7 +46,10 @@ class TestPlanner:
                             output_of_another_node=None,
                         )
                     ],
-                    output_names=None,
+                    output_constraints=OutputConstraints(
+                        output_type=OutputType.TEXT,
+                        content_spec="处理结果"
+                    ),
                     is_final_node=True,
                 )
             ]
@@ -67,7 +81,10 @@ class TestPlanner:
                             output_of_another_node=None,
                         )
                     ],
-                    output_names=None,
+                    output_constraints=OutputConstraints(
+                        output_type=OutputType.TEXT,
+                        content_spec="处理结果"
+                    ),
                     is_final_node=True,
                 )
             ]
@@ -110,7 +127,11 @@ class TestPlanner:
                             output_of_another_node=None,
                         )
                     ],
-                    output_names={"result": "输出"},
+                    output_constraints=OutputConstraints(
+                        output_type=OutputType.MODEL,
+                        fields={"result": "输出"},
+                        content_spec="输出结果"
+                    ),
                     is_final_node=False,
                 )
             ]
@@ -136,7 +157,10 @@ class TestPlanner:
                             output_of_another_node=None,
                         )
                     ],
-                    output_names=None,
+                    output_constraints=OutputConstraints(
+                        output_type=OutputType.TEXT,
+                        content_spec="处理结果"
+                    ),
                     is_final_node=True,
                 )
             ]
@@ -149,7 +173,7 @@ class TestPlanner:
 
 class TestExecutor:
 
-    def test_execute_string_output(self):
+    def test_execute_text_output(self):
         fake = FakeLLM()
         fake.set_response("execute", "这是执行结果")
 
@@ -159,13 +183,16 @@ class TestExecutor:
             response = executor.execute(
                 materials={"input": "测试内容"},
                 requirements="处理输入",
-                output_names=None
+                output_constraints=OutputConstraints(
+                    output_type=OutputType.TEXT,
+                    content_spec="执行结果"
+                )
             )
 
             assert isinstance(response, LLMResponse)
             assert response.content == "这是执行结果"
 
-    def test_execute_dict_output(self):
+    def test_execute_model_output(self):
         fake = FakeLLM()
         fake.set_response("execute", '{"keywords": "AI, ML, DL"}')
 
@@ -175,11 +202,16 @@ class TestExecutor:
             response = executor.execute(
                 materials={"article": "文章内容"},
                 requirements="提取关键词",
-                output_names={"keywords": "关键词列表"}
+                output_constraints=OutputConstraints(
+                    output_type=OutputType.MODEL,
+                    fields={"keywords": "关键词列表"},
+                    content_spec="关键词列表"
+                )
             )
 
             assert isinstance(response, LLMResponse)
-            assert response.content == {"keywords": "AI, ML, DL"}
+            assert isinstance(response.content, BaseModel)
+            assert response.content.keywords == "AI, ML, DL"
 
     def test_execute_with_retry(self):
         fake = FakeLLM()
@@ -191,7 +223,10 @@ class TestExecutor:
             response = executor.execute(
                 materials={"input": "测试"},
                 requirements="处理",
-                output_names=None,
+                output_constraints=OutputConstraints(
+                    output_type=OutputType.TEXT,
+                    content_spec="执行结果"
+                ),
                 last_output="上次结果",
                 reject_reason="输出不完整"
             )
@@ -212,7 +247,10 @@ class TestValidator:
             response = validator.validate_execution(
                 materials={"input": "测试"},
                 requirements="处理",
-                output_names={},
+                output_constraints=OutputConstraints(
+                    output_type=OutputType.TEXT,
+                    content_spec="结果"
+                ),
                 output="结果"
             )
 
@@ -229,7 +267,10 @@ class TestValidator:
             response = validator.validate_execution(
                 materials={"input": "测试"},
                 requirements="处理",
-                output_names={},
+                output_constraints=OutputConstraints(
+                    output_type=OutputType.TEXT,
+                    content_spec="结果"
+                ),
                 output="结果"
             )
 
@@ -237,33 +278,45 @@ class TestValidator:
             assert response.content.passed is False
             assert "不完整" in response.content.reason
 
-    def test_quick_check_missing_field(self):
+    def test_quick_check_text_output(self):
         result = Validator._quick_check_output_type(
-            output_names={"keywords": "关键词"},
-            output={"other": "其他内容"}
-        )
-
-        assert result is not None
-        assert result.passed is False
-        assert "keywords" in result.reason
-
-    def test_quick_check_non_string_value(self):
-        result = Validator._quick_check_output_type(
-            output_names={"keywords": "关键词"},
-            output={"keywords": 123}
-        )
-
-        assert result is not None
-        assert result.passed is False
-        assert "string" in result.reason
-
-    def test_quick_check_pass(self):
-        result = Validator._quick_check_output_type(
-            output_names={"keywords": "关键词"},
-            output={"keywords": "AI, ML"}
+            output_constraints=OutputConstraints(
+                output_type=OutputType.TEXT,
+                content_spec="结果"
+            ),
+            output="结果"
         )
 
         assert result is None
+
+    def test_quick_check_model_output_pass(self):
+        output_constraints = OutputConstraints(
+            output_type=OutputType.MODEL,
+            fields={"keywords": "关键词"},
+            content_spec="关键词"
+        )
+        output_model = output_constraints.get_model_class()
+        assert output_model is not None
+        result = Validator._quick_check_output_type(
+            output_constraints=output_constraints,
+            output=output_model(keywords="AI, ML")
+        )
+
+        assert result is None
+
+    def test_quick_check_model_output_type_mismatch(self):
+        result = Validator._quick_check_output_type(
+            output_constraints=OutputConstraints(
+                output_type=OutputType.MODEL,
+                fields={"keywords": "关键词"},
+                content_spec="关键词"
+            ),
+            output="wrong type"
+        )
+
+        assert result is not None
+        assert result.passed is False
+        assert "model" in result.reason.lower()
 
 
 class TestEvaluator:
@@ -319,7 +372,10 @@ class TestPlanAdvisor:
                             output_of_another_node=None,
                         )
                     ],
-                    output_names=None,
+                    output_constraints=OutputConstraints(
+                        output_type=OutputType.TEXT,
+                        content_spec="处理结果"
+                    ),
                     is_final_node=True,
                 )
             ]

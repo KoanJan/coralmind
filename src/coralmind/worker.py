@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, cast
+from typing import cast
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,18 @@ from .llm import (
     build_user_message,
     call_llm,
 )
-from .model import InputFieldSourceType, Language, OutputFormat, Plan, PlanAdvice, PlanAdviceType, Task, TaskTemplate
+from .model import (
+    InputFieldSourceType,
+    Language,
+    OutputConstraints,
+    OutputFormat,
+    OutputType,
+    Plan,
+    PlanAdvice,
+    PlanAdviceType,
+    Task,
+    TaskTemplate,
+)
 from .output_format import json_schema_to_pydantic
 from .prompts import (
     PromptName,
@@ -147,25 +158,21 @@ class Planner:
         final_node = plan.nodes[-1]
         if not final_node.is_final_node:
             raise PlanValidationError("The final node must be marked as final node", node_id=final_node.id)
-        if final_node.output_names and len(final_node.output_names) > 0:
-            raise PlanValidationError("The final node cannot have output_names", node_id=final_node.id)
 
         node_indices = {node.id: i for i, node in enumerate(plan.nodes)}
         if len(node_indices) != len(plan.nodes):
             duplicate_ids = [node.id for node in plan.nodes if list(node_indices.keys()).count(node.id) > 1]
             raise PlanValidationError(f"Duplicate node_id found: {list(set(duplicate_ids))}")
 
-        output_names_dict: dict[str, list[str]] = {
-            node.id: list(node.output_names.keys()) if node.output_names else []
-            for node in plan.nodes
-        }
+        output_names_dict: dict[str, list[str]] = {}
+        for node in plan.nodes:
+            if node.output_constraints.output_type == OutputType.MODEL and node.output_constraints.fields is not None:
+                output_names_dict[node.id] = list(node.output_constraints.fields.keys())
+            else:
+                output_names_dict[node.id] = []
         used_materials: set[str] = set()
 
         for i, node in enumerate(plan.nodes):
-
-            if i < len(plan.nodes) - 1 and (not node.output_names or len(node.output_names) == 0):
-                raise PlanValidationError("Non-final node must have at least 1 output name", node_id=node.id)
-
             for input_field in node.input_fields:
                 if input_field.source_type == InputFieldSourceType.ORIGINAL_MATERIAL:
                     used_materials.add(input_field.material_name)
@@ -219,32 +226,34 @@ class Executor:
             self,
             materials: dict[str, str],
             requirements: str,
-            output_names: dict[str, str] | None,
+            output_constraints: OutputConstraints,
             language: Language | None = None,
-            last_output: str | dict[str, str] | None = None,
+            last_output: str | BaseModel | None = None,
             reject_reason: str | None = None,
             relevant_requirements: str | None = None
-    ) -> LLMResponse[str] | LLMResponse[dict[str, str]]:
+    ) -> LLMResponse[str] | LLMResponse[BaseModel]:
         """
         Execute task
 
         Args:
             materials: Input material dictionary, key is material name, value is material content
             requirements: Task requirement description
-            output_names: Expected output field names and their definitions, None means return string result directly
+            output_constraints: Output constraints for validation (format and semantic validation)
             language: Language for prompts
             last_output: Output from last execution (for redo scenario)
             reject_reason: Reason for rejection last time (for redo scenario)
             relevant_requirements: Relevant requirements for context (from requirement tree or global fallback)
 
         Returns:
-            LLMResponse[str]: When output_names is None
-            LLMResponse[dict[str, str]]: When output_names is not None
+            LLMResponse[str]: When output_constraints.output_type is TEXT
+            LLMResponse[BaseModel]: When output_constraints.output_type is MODEL
         """
         if language is None:
             language = Language.EN
 
-        self.logger.debug(f"Executing: materials={list(materials.keys())}, output_names={list(output_names.keys()) if output_names else None}, is_retry={reject_reason is not None}")
+        output_model = output_constraints.get_model_class()
+
+        self.logger.debug(f"Executing: materials={list(materials.keys())}, output_type={'model' if output_model else 'text'}, is_retry={reject_reason is not None}")
 
         m_names: list[str] = []
         messages: list[str] = []
@@ -264,8 +273,8 @@ class Executor:
         requirements = build_prompt(PromptTemplateName.EXECUTOR_REQUIREMENTS, language=language,
                                     material_names=m_names_text, requirements=requirements)
         messages.append(requirements)
-        if output_names:
-            output_name_descriptions = [f"`{k}` (definition: {v})" for k, v in output_names.items()]
+        if output_model and output_constraints.fields is not None:
+            output_name_descriptions = [f"`{k}` (definition: {v})" for k, v in output_constraints.fields.items()]
             output_name_descriptions_text = ", ".join(output_name_descriptions)
             output_format_requirement = build_prompt(
                 PromptTemplateName.OUTPUT_FORMAT_WITH_NAMES,
@@ -282,11 +291,11 @@ class Executor:
             if isinstance(last_output, str):
                 llm_messages.append(build_assistant_message(last_output))
             else:
-                llm_messages.append(build_assistant_message(json.dumps(last_output)))
+                llm_messages.append(build_assistant_message(last_output.model_dump_json()))
             llm_messages.append(build_user_message(reject_reason))
 
-        if output_names:
-            result = call_llm(self.llm, llm_messages, dict, self.formatter_llm)
+        if output_model:
+            result = call_llm(self.llm, llm_messages, output_model, self.formatter_llm)
             return result
 
         str_result = call_llm(self.llm, llm_messages, str, self.formatter_llm)
@@ -314,8 +323,8 @@ class Validator:
             self,
             materials: dict[str, str],
             requirements: str,
-            output_names: dict[str, str],
-            output: str | dict[str, str],
+            output_constraints: OutputConstraints,
+            output: str | BaseModel,
             language: Language | None = None,
             relevant_requirements: str | None = None
     ) -> LLMResponse[ValidateResult]:
@@ -323,13 +332,13 @@ class Validator:
         Validate execution result
 
         Validation flow:
-        1. First perform quick rule validation (check output type and field completeness)
+        1. First perform quick rule validation (check output type)
         2. If quick validation passes, call LLM for deep semantic validation
 
         Args:
             materials: Input material dictionary
             requirements: Task requirements
-            output_names: Expected output field definitions
+            output_constraints: Output constraints for validation
             output: Actual output result
             language: Language for prompts
             relevant_requirements: Relevant requirements for alignment check (from requirement tree or global fallback)
@@ -340,7 +349,7 @@ class Validator:
         if language is None:
             language = Language.EN
 
-        quick_check_result = self._quick_check_output_type(output_names, output)
+        quick_check_result = self._quick_check_output_type(output_constraints, output)
         if quick_check_result:
             return LLMResponse(
                 content=quick_check_result,
@@ -348,33 +357,38 @@ class Validator:
                 model="",
             )
 
-        messages = build_validation_messages(language, materials, requirements, output, output_names, relevant_requirements)
+        is_model_output = output_constraints.output_type == OutputType.MODEL
+        output_names = output_constraints.fields if is_model_output else None
+        output_what = output_constraints.content_spec
+
+        messages = build_validation_messages(language, materials, requirements, output, output_names, output_what, relevant_requirements)
 
         result = call_llm(self.llm, as_user_messages(messages), ValidateResult, self.formatter_llm)
         return cast(LLMResponse[ValidateResult], result)
 
     @staticmethod
     def _quick_check_output_type(
-            output_names: dict[str, str],
-            output: str | dict[str, Any]
+            output_constraints: OutputConstraints,
+            output: str | BaseModel
     ) -> ValidateResult | None:
         """Quick validation of output type
 
         Returns:
             ValidateResult: If validation fails, return error result
-            None: If quick validation passes (including when output is str type), return None
+            None: If quick validation passes, return None
                   In this case, need to call LLM for deep validation
         """
-        if isinstance(output, str):
-            return None
+        is_model_output = output_constraints.output_type == OutputType.MODEL
 
-        for k, v in output.items():
-            if not isinstance(v, str):
-                return ValidateResult(passed=False,
-                                      reason=f"All values in the returned JSON must be strings, but the value for \"{k}\" is not a string type")
-        for output_name in output_names:
-            if output_name not in output:
-                return ValidateResult(passed=False, reason=f"Missing field \"{output_name}\"")
+        if not is_model_output:
+            if isinstance(output, str):
+                return None
+            else:
+                return ValidateResult(passed=False, reason="Expected text output, got model")
+
+        if isinstance(output, str):
+            return ValidateResult(passed=False, reason="Expected model output, got text")
+
         return None
 
 

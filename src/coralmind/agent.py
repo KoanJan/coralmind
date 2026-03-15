@@ -1,8 +1,10 @@
 import logging
 
+from pydantic import BaseModel
+
 from .exceptions import ExecutionError, PlanValidationError
 from .llm import LLMConfig, LLMResponse, TokenCost
-from .model import InputFieldSourceType, Plan, PlanAdvice, Task, TaskTemplate
+from .model import InputFieldSourceType, OutputType, Plan, PlanAdvice, Task, TaskTemplate
 from .requirements_finder import RelevantRequirementsFinder
 from .storage import PlanStorage, TaskTemplateStorage, init_storage
 from .strategy.advising import BasePlanStrategy, ThresholdStrategy
@@ -208,7 +210,7 @@ class Agent:
 
         materials_dict = {m.name: m.content for m in task.materials}
         intermediate_data: dict[str, str] = {}
-        cur_output: str | dict[str, str] | None = None
+        cur_output: str | BaseModel | None = None
         total_token_cost = TokenCost(prompt=0, completion=0, total=0)
 
         if (not plan.nodes) or len(plan.nodes) == 0:
@@ -232,47 +234,43 @@ class Agent:
 
             relevant_requirements = finder.find(plan_node.requirements)
 
-            output_names = plan_node.output_names or {}
+            output_constraints = plan_node.output_constraints
             for attempt in range(self.max_retry_times_per_node):
                 logger.debug(f"Node {plan_node.id}: execution attempt {attempt + 1}/{self.max_retry_times_per_node}")
 
                 exec_response = self.executor.execute(
-                    input_materials, plan_node.requirements, output_names,
+                    input_materials, plan_node.requirements, output_constraints,
                     language=task.language,
                     relevant_requirements=relevant_requirements
                 )
                 total_token_cost = total_token_cost + exec_response.token_cost
                 cur_output = exec_response.content
 
-                if output_names:
-                    validate_response = self.validator.validate_execution(
-                        input_materials, plan_node.requirements, output_names, cur_output,
+                validate_response = self.validator.validate_execution(
+                    input_materials, plan_node.requirements, output_constraints, cur_output,
+                    language=task.language,
+                    relevant_requirements=relevant_requirements
+                )
+                total_token_cost = total_token_cost + validate_response.token_cost
+
+                if validate_response.content.passed:
+                    logger.debug(f"Node {plan_node.id}: validation passed")
+                    break
+                else:
+                    logger.debug(f"Node {plan_node.id}: validation failed, reason: {validate_response.content.reason}")
+                    exec_response = self.executor.execute(
+                        input_materials, plan_node.requirements, output_constraints,
+                        last_output=cur_output, reject_reason=validate_response.content.reason,
                         language=task.language,
                         relevant_requirements=relevant_requirements
                     )
-                    total_token_cost = total_token_cost + validate_response.token_cost
+                    total_token_cost = total_token_cost + exec_response.token_cost
+                    cur_output = exec_response.content
 
-                    if validate_response.content.passed:
-                        logger.debug(f"Node {plan_node.id}: validation passed")
-                        break
-                    else:
-                        logger.debug(f"Node {plan_node.id}: validation failed, reason: {validate_response.content.reason}")
-                        exec_response = self.executor.execute(
-                            input_materials, plan_node.requirements, output_names,
-                            last_output=cur_output, reject_reason=validate_response.content.reason,
-                            language=task.language,
-                            relevant_requirements=relevant_requirements
-                        )
-                        total_token_cost = total_token_cost + exec_response.token_cost
-                        cur_output = exec_response.content
-                else:
-                    logger.debug(f"Node {plan_node.id}: no output_names, skipping validation")
-                    break
-
-            if isinstance(cur_output, dict):
-                for name, value in cur_output.items():
-                    intermediate_data[f"{plan_node.id}.{name}"] = value
-                logger.debug(f"Node {plan_node.id}: output_names={list(cur_output.keys())}")
+            if output_constraints.output_type == OutputType.MODEL and output_constraints.fields is not None and isinstance(cur_output, BaseModel):
+                for name in cur_output.model_fields:
+                    intermediate_data[f"{plan_node.id}.{name}"] = getattr(cur_output, name)
+                logger.debug(f"Node {plan_node.id}: output_names={list(cur_output.model_fields.keys())}")
 
         if not isinstance(cur_output, str):
             raise ExecutionError(

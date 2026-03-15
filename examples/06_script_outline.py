@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Reproduce the task from agent.log - Story planning with specific materials.
 

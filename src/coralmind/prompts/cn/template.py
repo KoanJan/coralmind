@@ -1,17 +1,3 @@
-FIX_DICT_STRUCTURE = """以下 JSON 存在结构错误：
-
-```json
-{json_string}
-```
-
-错误：{error_msg}
-
-请修复 JSON 并仅返回修正后的 JSON。要求：
-1. 输出必须是 JSON 对象（dict），不能是数组
-2. 所有值必须是字符串（str），不能是数组或嵌套对象
-3. 如果需要表示多个项目，请使用换行分隔的字符串或 JSON 序列化的字符串
-4. 不要包含任何 markdown 格式或解释，仅返回原始 JSON"""
-
 FIX_MODEL_VALIDATION = """以下 JSON 存在验证错误：
 
 ```json
