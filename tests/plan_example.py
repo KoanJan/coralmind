@@ -2,6 +2,7 @@ import json
 
 plan_example_json = """
 {
+  "deliverable": "一份完整的产品策略方案，包含目标市场定位、用户画像、产品定位与差异化、产品组合、定价策略、核心功能、关键成功要素及风险提示等章节，逻辑清晰、数据驱动、可执行性强",
   "nodes": [
     {
       "id": "analyze_market",

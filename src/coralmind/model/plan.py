@@ -3,7 +3,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field, create_model
 
-__all__ = ["InputFieldSourceType", "InputField", "OutputType", "OutputConstraints", "PlanNode", "Plan", "PlanAdvice", "PlanAdviceType"]
+from .task import Language
+
+__all__ = ["InputFieldSourceType", "InputField", "OutputType", "OutputConstraints", "PlanNode", "Plan", "PlanAdvice", "PlanAdviceType", "TaskStep"]
 
 
 class InputFieldSourceType(str, Enum):
@@ -88,6 +90,7 @@ class PlanNode(BaseModel):
 
 class Plan(BaseModel):
     """Execution plan"""
+    deliverable: str = Field(description="Description of the final deliverable")
     nodes: list[PlanNode]
 
 
@@ -101,3 +104,12 @@ class PlanAdvice(BaseModel):
     """Plan advice"""
     type: PlanAdviceType = Field(description="Advice type")
     old_plan: Plan = Field(description="Old plan")
+
+
+class TaskStep(BaseModel):
+    """Task step for execution"""
+    materials: dict[str, str] = Field(description="Input material dictionary, key is material name, value is material content")
+    requirements: str = Field(description="Task requirement description")
+    output_constraints: OutputConstraints = Field(description="Output constraints for validation")
+    language: Language | None = Field(default=None, description="Language for prompts")
+    relevant_requirements: str | None = Field(default=None, description="Relevant requirements for context")

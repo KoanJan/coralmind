@@ -94,7 +94,14 @@ PLAN_STANDARD = r"""
 
 ### 二、结构说明
 
-Plan包含一个nodes列表，每个PlanNode包含以下字段：
+Plan包含以下字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| deliverable | string | 最终交付物描述，说明任务产出的成果形式（如"一段Python代码"、"一篇文章摘要"） |
+| nodes | list[PlanNode] | 执行节点列表 |
+
+每个PlanNode包含以下字段：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -131,6 +138,7 @@ OutputConstraints结构：
    - 最终节点的 `is_final_node` 必须为 `true`
    - 最终节点的 `output_constraints.output_type` 应为 `text`
    - 最终节点的 `output_constraints.fields` 应为 `null`
+   - 最终节点的 `output_constraints.content_spec` 应与 `deliverable` 保持一致
 
 4. **中间节点**：
    - 非最终节点的 `is_final_node` 为 `false`
@@ -161,6 +169,7 @@ OutputConstraints结构：
 
 ```json
 {
+  "deliverable": "一份简洁的文章摘要",
   "nodes": [
     {
       "id": "extract",

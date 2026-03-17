@@ -94,7 +94,14 @@ An Execution Plan (Plan) is a structured approach that decomposes a complex task
 
 ### 2. Structure Description
 
-A Plan contains a nodes list, where each PlanNode includes the following fields:
+A Plan contains the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| deliverable | string | Description of the final deliverable, explaining the form of task output (e.g., "a Python code snippet", "an article summary") |
+| nodes | list[PlanNode] | List of execution nodes |
+
+Each PlanNode includes the following fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -131,6 +138,7 @@ OutputConstraints structure:
    - The final node's `is_final_node` must be `true`
    - The final node's `output_constraints.output_type` should be `text`
    - The final node's `output_constraints.fields` should be `null`
+   - The final node's `output_constraints.content_spec` should be consistent with `deliverable`
 
 4. **Intermediate Nodes**:
    - Non-final nodes have `is_final_node` as `false`
@@ -161,6 +169,7 @@ OutputConstraints structure:
 
 ```json
 {
+  "deliverable": "A concise article summary",
   "nodes": [
     {
       "id": "extract",

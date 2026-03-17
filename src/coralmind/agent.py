@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from .exceptions import ExecutionError, PlanValidationError
 from .llm import LLMConfig, LLMResponse, TokenCost
-from .model import InputFieldSourceType, OutputType, Plan, PlanAdvice, Task, TaskTemplate
+from .model import InputFieldSourceType, OutputType, Plan, PlanAdvice, Task, TaskStep, TaskTemplate
 from .requirements_finder import RelevantRequirementsFinder
 from .storage import PlanStorage, TaskTemplateStorage, init_storage
 from .strategy.advising import BasePlanStrategy, ThresholdStrategy
@@ -208,7 +208,9 @@ class Agent:
         """
         logger.debug(f"Starting orchestration with {len(plan.nodes)} nodes")
 
+        # Initialize: convert materials list to dict for easy lookup by name
         materials_dict = {m.name: m.content for m in task.materials}
+        # Store intermediate node outputs, key format: "node_id.field_name"
         intermediate_data: dict[str, str] = {}
         cur_output: str | BaseModel | None = None
         total_token_cost = TokenCost(prompt=0, completion=0, total=0)
@@ -216,14 +218,15 @@ class Agent:
         if (not plan.nodes) or len(plan.nodes) == 0:
             raise PlanValidationError("Plan contains 0 nodes")
 
+        # Execute each node in the plan sequentially
         for i, plan_node in enumerate(plan.nodes):
             logger.debug(f"Executing node {i+1}/{len(plan.nodes)}: {plan_node.id} (is_final={plan_node.is_final_node})")
 
-            input_materials: dict[str, str] = {}
+            # Prepare input materials: include all original materials by default
+            input_materials: dict[str, str] = dict(materials_dict)
+            # Add outputs from other nodes as inputs
             for input_field in plan_node.input_fields:
-                if input_field.source_type == InputFieldSourceType.ORIGINAL_MATERIAL:
-                    input_materials[input_field.material_name] = materials_dict[input_field.material_name]
-                elif input_field.source_type == InputFieldSourceType.OUTPUT_OF_ANOTHER_NODE:
+                if input_field.source_type == InputFieldSourceType.OUTPUT_OF_ANOTHER_NODE:
                     dep_node = input_field.output_of_another_node
                     if dep_node is None:
                         raise PlanValidationError("output_of_another_node is required", node_id=plan_node.id)
@@ -232,46 +235,52 @@ class Agent:
 
             logger.debug(f"Node {plan_node.id}: input_materials={list(input_materials.keys())}")
 
+            # Find relevant requirements for current node
             relevant_requirements = finder.find(plan_node.requirements)
 
-            output_constraints = plan_node.output_constraints
+            # Build task step
+            task_step = TaskStep(
+                materials=input_materials,
+                requirements=plan_node.requirements,
+                output_constraints=plan_node.output_constraints,
+                language=task.language,
+                relevant_requirements=relevant_requirements
+            )
+
+            # Execute-validate loop with retry support
             for attempt in range(self.max_retry_times_per_node):
                 logger.debug(f"Node {plan_node.id}: execution attempt {attempt + 1}/{self.max_retry_times_per_node}")
 
-                exec_response = self.executor.execute(
-                    input_materials, plan_node.requirements, output_constraints,
-                    language=task.language,
-                    relevant_requirements=relevant_requirements
-                )
+                # Execute node task
+                exec_response = self.executor.execute(task_step)
                 total_token_cost = total_token_cost + exec_response.token_cost
                 cur_output = exec_response.content
 
-                validate_response = self.validator.validate_execution(
-                    input_materials, plan_node.requirements, output_constraints, cur_output,
-                    language=task.language,
-                    relevant_requirements=relevant_requirements
-                )
+                # Validate execution result
+                validate_response = self.validator.validate_execution(task_step, cur_output)
                 total_token_cost = total_token_cost + validate_response.token_cost
 
                 if validate_response.content.passed:
                     logger.debug(f"Node {plan_node.id}: validation passed")
                     break
                 else:
+                    # Validation failed, retry with rejection reason
                     logger.debug(f"Node {plan_node.id}: validation failed, reason: {validate_response.content.reason}")
                     exec_response = self.executor.execute(
-                        input_materials, plan_node.requirements, output_constraints,
-                        last_output=cur_output, reject_reason=validate_response.content.reason,
-                        language=task.language,
-                        relevant_requirements=relevant_requirements
+                        task_step,
+                        last_output=cur_output,
+                        reject_reason=validate_response.content.reason
                     )
                     total_token_cost = total_token_cost + exec_response.token_cost
                     cur_output = exec_response.content
 
-            if output_constraints.output_type == OutputType.MODEL and output_constraints.fields is not None and isinstance(cur_output, BaseModel):
+            # If MODEL type output, store each field in intermediate_data for subsequent nodes
+            if task_step.output_constraints.output_type == OutputType.MODEL and task_step.output_constraints.fields is not None and isinstance(cur_output, BaseModel):
                 for name in cur_output.model_fields:
                     intermediate_data[f"{plan_node.id}.{name}"] = getattr(cur_output, name)
                 logger.debug(f"Node {plan_node.id}: output_names={list(cur_output.model_fields.keys())}")
 
+        # Final output must be string type
         if not isinstance(cur_output, str):
             raise ExecutionError(
                 f"Final output must be string, got {type(cur_output).__name__}. "

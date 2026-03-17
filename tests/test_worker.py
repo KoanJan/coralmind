@@ -16,6 +16,7 @@ from coralmind.model import (
     PlanAdvice,
     PlanAdviceType,
     PlanNode,
+    TaskStep,
     TaskTemplate,
 )
 from coralmind.storage import init_storage, set_db_path
@@ -35,6 +36,7 @@ class TestPlanner:
     def test_make_plan_without_advice(self):
         fake = FakeLLM()
         expected_plan = Plan(
+            deliverable="处理结果",
             nodes=[
                 PlanNode(
                     id="node_1",
@@ -70,6 +72,7 @@ class TestPlanner:
         fake = FakeLLM()
 
         old_plan = Plan(
+            deliverable="处理结果",
             nodes=[
                 PlanNode(
                     id="node_1",
@@ -105,7 +108,7 @@ class TestPlanner:
         fake = FakeLLM()
         planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-        plan = Plan(nodes=[])
+        plan = Plan(deliverable="测试", nodes=[])
         task_template = TaskTemplate(material_names=["input"], requirements="测试")
 
         with pytest.raises(PlanValidationError, match="at least 1 node"):
@@ -116,6 +119,7 @@ class TestPlanner:
         planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
 
         plan = Plan(
+            deliverable="处理结果",
             nodes=[
                 PlanNode(
                     id="node_1",
@@ -141,35 +145,6 @@ class TestPlanner:
         with pytest.raises(PlanValidationError, match="final node"):
             planner._validate_plan_structure(task_template, plan)
 
-    def test_validate_plan_missing_material(self):
-        fake = FakeLLM()
-        planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
-
-        plan = Plan(
-            nodes=[
-                PlanNode(
-                    id="node_1",
-                    requirements="处理",
-                    input_fields=[
-                        InputField(
-                            source_type=InputFieldSourceType.ORIGINAL_MATERIAL,
-                            material_name="input1",
-                            output_of_another_node=None,
-                        )
-                    ],
-                    output_constraints=OutputConstraints(
-                        output_type=OutputType.TEXT,
-                        content_spec="处理结果"
-                    ),
-                    is_final_node=True,
-                )
-            ]
-        )
-        task_template = TaskTemplate(material_names=["input1", "input2"], requirements="测试")
-
-        with pytest.raises(PlanValidationError, match="does not use the following materials"):
-            planner._validate_plan_structure(task_template, plan)
-
 
 class TestExecutor:
 
@@ -180,7 +155,7 @@ class TestExecutor:
         with create_mock_llm(fake):
             executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            response = executor.execute(
+            task_step = TaskStep(
                 materials={"input": "测试内容"},
                 requirements="处理输入",
                 output_constraints=OutputConstraints(
@@ -188,6 +163,8 @@ class TestExecutor:
                     content_spec="执行结果"
                 )
             )
+
+            response = executor.execute(task_step)
 
             assert isinstance(response, LLMResponse)
             assert response.content == "这是执行结果"
@@ -199,7 +176,7 @@ class TestExecutor:
         with create_mock_llm(fake):
             executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            response = executor.execute(
+            task_step = TaskStep(
                 materials={"article": "文章内容"},
                 requirements="提取关键词",
                 output_constraints=OutputConstraints(
@@ -208,6 +185,8 @@ class TestExecutor:
                     content_spec="关键词列表"
                 )
             )
+
+            response = executor.execute(task_step)
 
             assert isinstance(response, LLMResponse)
             assert isinstance(response.content, BaseModel)
@@ -220,13 +199,17 @@ class TestExecutor:
         with create_mock_llm(fake):
             executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            response = executor.execute(
+            task_step = TaskStep(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_constraints=OutputConstraints(
                     output_type=OutputType.TEXT,
                     content_spec="执行结果"
-                ),
+                )
+            )
+
+            response = executor.execute(
+                task_step,
                 last_output="上次结果",
                 reject_reason="输出不完整"
             )
@@ -244,15 +227,16 @@ class TestValidator:
         with create_mock_llm(fake):
             validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            response = validator.validate_execution(
+            task_step = TaskStep(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_constraints=OutputConstraints(
                     output_type=OutputType.TEXT,
                     content_spec="结果"
-                ),
-                output="结果"
+                )
             )
+
+            response = validator.validate_execution(task_step, "结果")
 
             assert isinstance(response, LLMResponse)
             assert response.content.passed is True
@@ -264,15 +248,16 @@ class TestValidator:
         with create_mock_llm(fake):
             validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
 
-            response = validator.validate_execution(
+            task_step = TaskStep(
                 materials={"input": "测试"},
                 requirements="处理",
                 output_constraints=OutputConstraints(
                     output_type=OutputType.TEXT,
                     content_spec="结果"
-                ),
-                output="结果"
+                )
             )
+
+            response = validator.validate_execution(task_step, "结果")
 
             assert isinstance(response, LLMResponse)
             assert response.content.passed is False
@@ -361,6 +346,7 @@ class TestPlanAdvisor:
         from coralmind.strategy.advising import ThresholdStrategy
 
         plan = Plan(
+            deliverable="处理结果",
             nodes=[
                 PlanNode(
                     id="node_1",

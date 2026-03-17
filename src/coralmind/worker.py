@@ -26,6 +26,7 @@ from .model import (
     PlanAdvice,
     PlanAdviceType,
     Task,
+    TaskStep,
     TaskTemplate,
 )
 from .output_format import json_schema_to_pydantic
@@ -64,7 +65,8 @@ class Planner:
         - If advice exists and type is BASE_ON, optimize based on the old plan
         - If no advice, generate plan from scratch
 
-        The generated plan will be structurally validated.
+        The generated plan will be patched with additional material assignments
+        and then structurally validated.
 
         Args:
             task_template: Task template containing material names and requirements
@@ -83,7 +85,7 @@ class Planner:
         else:
             response = self._generate_plan_without_advice(task_template)
 
-        self.logger.debug("Plan generated, validating structure...")
+        self.logger.debug("Validating plan structure...")
         self._validate_plan_structure(task_template, response.content)
         self.logger.debug("Plan structure validation passed")
 
@@ -142,8 +144,7 @@ class Planner:
         - Last node must be final node and cannot have output fields
         - Node IDs cannot be duplicated
         - Non-final nodes must have output fields
-        - Input dependencies must be valid (referenced materials and node outputs must exist)
-        - All materials must be used in the plan
+        - Input dependencies must be valid (referenced node outputs must exist)
 
         Args:
             task_template: Task template
@@ -170,19 +171,10 @@ class Planner:
                 output_names_dict[node.id] = list(node.output_constraints.fields.keys())
             else:
                 output_names_dict[node.id] = []
-        used_materials: set[str] = set()
 
         for i, node in enumerate(plan.nodes):
             for input_field in node.input_fields:
-                if input_field.source_type == InputFieldSourceType.ORIGINAL_MATERIAL:
-                    used_materials.add(input_field.material_name)
-                    if input_field.material_name not in task_template.material_names:
-                        raise PlanValidationError(
-                            f"Material '{input_field.material_name}' not found in task template. "
-                            f"Available materials: {task_template.material_names}",
-                            node_id=node.id
-                        )
-                elif input_field.source_type == InputFieldSourceType.OUTPUT_OF_ANOTHER_NODE:
+                if input_field.source_type == InputFieldSourceType.OUTPUT_OF_ANOTHER_NODE:
                     dep = input_field.output_of_another_node
                     if dep is None:
                         raise PlanValidationError("output_of_another_node is required", node_id=node.id)
@@ -206,10 +198,6 @@ class Planner:
                             node_id=node.id
                         )
 
-        missing = set(task_template.material_names) - used_materials
-        if missing:
-            raise PlanValidationError(f"Plan does not use the following materials: {', '.join(missing)}")
-
 
 class Executor:
     """
@@ -224,30 +212,28 @@ class Executor:
 
     def execute(
             self,
-            materials: dict[str, str],
-            requirements: str,
-            output_constraints: OutputConstraints,
-            language: Language | None = None,
+            task_step: TaskStep,
             last_output: str | BaseModel | None = None,
             reject_reason: str | None = None,
-            relevant_requirements: str | None = None
     ) -> LLMResponse[str] | LLMResponse[BaseModel]:
         """
-        Execute task
+        Execute task step
 
         Args:
-            materials: Input material dictionary, key is material name, value is material content
-            requirements: Task requirement description
-            output_constraints: Output constraints for validation (format and semantic validation)
-            language: Language for prompts
+            task_step: Task step containing materials, requirements, output_constraints, etc.
             last_output: Output from last execution (for redo scenario)
             reject_reason: Reason for rejection last time (for redo scenario)
-            relevant_requirements: Relevant requirements for context (from requirement tree or global fallback)
 
         Returns:
             LLMResponse[str]: When output_constraints.output_type is TEXT
             LLMResponse[BaseModel]: When output_constraints.output_type is MODEL
         """
+        materials = task_step.materials
+        requirements = task_step.requirements
+        output_constraints = task_step.output_constraints
+        language = task_step.language
+        relevant_requirements = task_step.relevant_requirements
+
         if language is None:
             language = Language.EN
 
@@ -321,12 +307,8 @@ class Validator:
 
     def validate_execution(
             self,
-            materials: dict[str, str],
-            requirements: str,
-            output_constraints: OutputConstraints,
+            task_step: TaskStep,
             output: str | BaseModel,
-            language: Language | None = None,
-            relevant_requirements: str | None = None
     ) -> LLMResponse[ValidateResult]:
         """
         Validate execution result
@@ -336,16 +318,18 @@ class Validator:
         2. If quick validation passes, call LLM for deep semantic validation
 
         Args:
-            materials: Input material dictionary
-            requirements: Task requirements
-            output_constraints: Output constraints for validation
+            task_step: Task step containing materials, requirements, output_constraints, etc.
             output: Actual output result
-            language: Language for prompts
-            relevant_requirements: Relevant requirements for alignment check (from requirement tree or global fallback)
 
         Returns:
             LLMResponse[ValidateResult]: Response containing validation result and token cost
         """
+        materials = task_step.materials
+        requirements = task_step.requirements
+        output_constraints = task_step.output_constraints
+        language = task_step.language
+        relevant_requirements = task_step.relevant_requirements
+
         if language is None:
             language = Language.EN
 

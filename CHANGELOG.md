@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.11] - 2026-03-17
+
+### Added
+
+- **TaskStep Model**: Encapsulated execution parameters into a unified `TaskStep` class
+  - Consolidates `materials`, `requirements`, `output_constraints`, `language`, `relevant_requirements` into single object
+  - Cleaner method signatures for `Executor.execute()` and `Validator.validate_execution()`
+  - Better parameter management and code organization
+
+- **Plan Deliverable Field**: Added `deliverable` field to `Plan` class
+  - Describes the final deliverable of the plan (e.g., "a piece of code")
+  - Provides clear context for what the plan aims to produce
+
+- **ContentSpec-Deliverable Consistency**: Validation ensures final node's `content_spec` matches plan's `deliverable`
+  - Prompt-level constraint for LLM to maintain consistency
+  - Ensures semantic alignment between plan goal and final output
+
+- **Code Documentation**: Added comprehensive English comments to `_orchestrate` method
+  - Clear documentation of execution flow
+  - Explains each step: initialization, node execution, validation loop, intermediate data storage
+
+### Changed
+
+- **Material Passing Strategy**: All materials are now passed to every node by default
+  - Simplified execution model: no need for LLM to decide material relevance per node
+  - More robust execution with full context available at each step
+
+### Removed
+
+- **Material Coverage Validation**: Removed the check that all materials must be used in plan
+  - Simplified validation logic
+  - Aligns with new material passing strategy where all materials are available to all nodes
+
 ## [0.0.10] - 2026-03-16
 
 ### Changed

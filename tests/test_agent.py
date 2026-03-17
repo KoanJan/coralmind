@@ -26,6 +26,7 @@ def test_agent_simple_task():
     fake = FakeLLM()
 
     fake.set_response("plan", Plan(
+        deliverable="摘要结果",
         nodes=[
             PlanNode(
                 id="node_1",
@@ -68,6 +69,7 @@ def test_agent_multi_node_task():
     fake = FakeLLM()
 
     fake.set_response("plan", Plan(
+        deliverable="摘要结果",
         nodes=[
             PlanNode(
                 id="node_1",
@@ -133,6 +135,7 @@ def test_agent_final_node_with_output_constraints():
     fake = FakeLLM()
 
     fake.set_response("plan", Plan(
+        deliverable="文本摘要",
         nodes=[
             PlanNode(
                 id="node_1",
@@ -181,6 +184,7 @@ class TestAgentStorage:
             _reset_and_init_storage(db_path)
 
             fake.set_response("plan", Plan(
+                deliverable="处理结果",
                 nodes=[
                     PlanNode(
                         id="node_1",

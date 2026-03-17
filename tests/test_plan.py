@@ -21,6 +21,7 @@ def test_plan_single_node():
     agent = Agent(default_llm=FakeLLMInstance)
 
     plan = Plan(
+        deliverable="处理结果",
         nodes=[
             PlanNode(
                 id="final",
