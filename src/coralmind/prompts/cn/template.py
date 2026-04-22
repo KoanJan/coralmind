@@ -1,46 +1,16 @@
-FIX_MODEL_VALIDATION = """以下 JSON 存在验证错误：
-
-```json
-{json_string}
-```
-
-错误：{error_msg}
-
-目标 schema：
-```json_schema
-{schema}
-```
-
-请修复 JSON 并仅返回修正后的 JSON。要求：
-1. 输出必须严格符合目标 schema
-2. 所有必填字段必须存在
-3. 字段类型必须与 schema 定义匹配
-4. 不要包含任何 markdown 格式或解释，仅返回原始 JSON"""
-
-OUTPUT_FORMAT_WITH_NAMES = """返回一个 JSON 字典，包含以下字段：{output_name_descriptions}。
-
-**重要提示**：字典中的所有值必须是字符串（str 类型），不能是数组、对象或嵌套结构。
-- 如果需要返回多个项目，请将其格式化为单个字符串（例如换行分隔或 JSON 序列化）
-- 正确格式示例：{{"items": "项目1\\n项目2\\n项目3"}}
-- 错误格式示例：{{"items": ["项目1", "项目2", "项目3"]}}"""
+OUTPUT_FORMAT_WITH_NAMES = """输出字段：{output_name_descriptions}。"""
 
 OUTPUT_FORMAT_WITHOUT_NAMES = "直接返回最终结果。不要包含任何不属于交付物本身的内容。"
 
 PLANNER_OUTPUT_FORMAT_SECTION = """
 
-# 最终输出格式（JSON Schema）
+# 最终输出格式
 所有节点完成后，最终输出将格式化为符合此 schema 的形式：
 ```json
 {json_schema}
 ```
 
-**重要约束**：
-- 此 schema 仅用于最终输出，不适用于中间节点
-- 每个中间节点必须输出 `dict[str, str]`，其中值为纯字符串
-- 不要创建输出 JSON 数组或嵌套对象的节点
-- 最终节点应输出包含所有内容的单个字符串
-- JSON 格式化发生在执行之后，而非执行期间
-- 这不是物料，不应在 input_fields 中引用
+**注意**：此 schema 仅用于最终输出，不适用于中间节点。这不是物料，不应在 input_fields 中引用。
 """
 
 PLANNER_MESSAGE_TEMPLATE = """
@@ -63,11 +33,6 @@ PLANNER_MESSAGE_TEMPLATE = """
 # 执行计划规范
 ```text
 {plan_standard}
-```
-
-# 返回格式（JSON Schema）
-```json
-{return_format_schema}
 ```
 """
 
@@ -119,19 +84,6 @@ REQUIREMENT_TREE_BUILD = """# 任务
 5. `name` 应简洁，`description` 应说明该节点涵盖的内容
 
 **重要**：根节点必须是非叶子节点（有 `children`），且所有叶子节点的 scope 合并后必须覆盖从 1 到最后一个片段 ID 的所有片段。不允许任何片段丢失。
-
-# 返回格式（JSON Schema）
-
-```json
-{{
-  "name": "字符串 - 该节点的简洁名称",
-  "description": "字符串 - 描述该节点涵盖的内容",
-  "children": [...],  // 非叶子节点使用，子节点列表
-  "scope": [[1, 5], [10, 15]]  // 仅叶子节点使用，片段 ID 范围
-}}
-```
-
-仅返回树的根节点（必须有 children）。树的深度应为 2-4 层。
 """
 
 RELEVANT_REQUIREMENTS_CONTEXT = """# 相关任务要求

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import cast
 
@@ -52,9 +51,8 @@ class Planner:
 
     logger = logging.getLogger(__name__)
 
-    def __init__(self, llm: LLMConfig, formatter_llm: LLMConfig):
+    def __init__(self, llm: LLMConfig):
         self.llm = llm
-        self.formatter_llm = formatter_llm
 
     def make_plan(self, task_template: TaskTemplate, advice: PlanAdvice | None) -> LLMResponse[Plan]:
         """
@@ -104,12 +102,12 @@ class Planner:
         old_plan_message = build_prompt(PromptTemplateName.OLD_PLAN_ATTACHMENT, language=task_template.language, old_plan=old_plan)
         messages.append(old_plan_message)
 
-        result = call_llm(self.llm, as_user_messages(messages), Plan, self.formatter_llm)
+        result = call_llm(self.llm, as_user_messages(messages), Plan)
         return cast(LLMResponse[Plan], result)
 
     def _generate_plan_without_advice(self, task_template: TaskTemplate) -> LLMResponse[Plan]:
         messages = self._build_messages_for_generating_plan(task_template)
-        result = call_llm(self.llm, as_user_messages(messages), Plan, self.formatter_llm)
+        result = call_llm(self.llm, as_user_messages(messages), Plan)
         return cast(LLMResponse[Plan], result)
 
     @staticmethod
@@ -130,8 +128,7 @@ class Planner:
             materials_names=materials_names,
             requirements=task_template.requirements,
             output_format_section=output_format_section,
-            plan_standard=get_prompt(PromptName.PLAN_STANDARD, task_template.language),
-            return_format_schema=json.dumps(Plan.model_json_schema(), indent=2, ensure_ascii=False)
+            plan_standard=get_prompt(PromptName.PLAN_STANDARD, task_template.language)
         )
         return [message]
 
@@ -206,9 +203,8 @@ class Executor:
 
     logger = logging.getLogger(__name__)
 
-    def __init__(self, llm: LLMConfig, formatter_llm: LLMConfig):
+    def __init__(self, llm: LLMConfig):
         self.llm = llm
-        self.formatter_llm = formatter_llm
 
     def execute(
             self,
@@ -281,10 +277,10 @@ class Executor:
             llm_messages.append(build_user_message(reject_reason))
 
         if output_model:
-            result = call_llm(self.llm, llm_messages, output_model, self.formatter_llm)
+            result = call_llm(self.llm, llm_messages, output_model)
             return result
 
-        str_result = call_llm(self.llm, llm_messages, str, self.formatter_llm)
+        str_result = call_llm(self.llm, llm_messages, str)
         return str_result
 
 
@@ -301,9 +297,8 @@ class Validator:
     Execution Result Validator
     """
 
-    def __init__(self, llm: LLMConfig, formatter_llm: LLMConfig):
+    def __init__(self, llm: LLMConfig):
         self.llm = llm
-        self.formatter_llm = formatter_llm
 
     def validate_execution(
             self,
@@ -347,7 +342,7 @@ class Validator:
 
         messages = build_validation_messages(language, materials, requirements, output, output_names, output_what, relevant_requirements)
 
-        result = call_llm(self.llm, as_user_messages(messages), ValidateResult, self.formatter_llm)
+        result = call_llm(self.llm, as_user_messages(messages), ValidateResult)
         return cast(LLMResponse[ValidateResult], result)
 
     @staticmethod
@@ -391,9 +386,8 @@ class Evaluator:
     Evaluator
     """
 
-    def __init__(self, llm: LLMConfig, formatter_llm: LLMConfig):
+    def __init__(self, llm: LLMConfig):
         self.llm = llm
-        self.formatter_llm = formatter_llm
 
     def score(self, task: Task, output: str) -> LLMResponse[EvaluationScore]:
         """
@@ -407,7 +401,7 @@ class Evaluator:
             LLMResponse[EvaluationScore]: Response containing score and token cost
         """
         messages = build_score_messages(task, output)
-        result = call_llm(self.llm, as_user_messages(messages), EvaluationScore, self.formatter_llm)
+        result = call_llm(self.llm, as_user_messages(messages), EvaluationScore)
         return cast(LLMResponse[EvaluationScore], result)
 
 

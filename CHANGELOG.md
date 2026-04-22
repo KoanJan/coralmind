@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.12] - 2026-04-23
+
+### Changed
+
+- **LLM API-Level Structured Output**: Replaced prompt-based JSON formatting with OpenAI API-level constraints
+  - Uses `response_format` parameter with `json_schema` type for guaranteed valid JSON output
+  - Removed deprecated `_fix_model_json_by_llm` and `_quick_fix_object_json` functions
+  - Simplified `call_llm` function with direct schema validation
+  - Better reliability and reduced token overhead
+
+- **Prompt Template Cleanup**: Removed redundant JSON format descriptions from templates
+  - Simplified `OUTPUT_FORMAT_WITH_NAMES` to concise field descriptions
+  - Removed `RETURN_FORMAT` sections from planner and requirement tree templates
+  - Removed `FIX_MODEL_VALIDATION` template (no longer needed)
+  - Cleaner prompts with less token consumption
+
+- **Code Simplification**: Removed `formatter_llm` parameter from all callers
+  - Updated `Agent`, `Planner`, `Executor`, `Validator`, `Evaluator` classes
+  - Removed `return_format_schema` parameter from worker methods
+  - Streamlined validation flow with API-level guarantees
+
+### Removed
+
+- **Deprecated Functions**: Removed JSON repair utilities
+  - `_fix_model_json_by_llm`: LLM-based JSON repair
+  - `_quick_fix_object_json`: Quick JSON fixes
+  - `FIX_MODEL_VALIDATION` template and enum
+
 ## [0.0.11] - 2026-03-17
 
 ### Added

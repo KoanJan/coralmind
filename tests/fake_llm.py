@@ -1,5 +1,6 @@
 import json
-from unittest.mock import patch
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
 from pydantic import BaseModel
 
@@ -43,7 +44,7 @@ class FakeLLM:
         ]
         self._call_count[key] = 0
 
-    def mock_call(self, llm, messages: list[dict], output_type: type, formatter_llm=None):
+    def mock_call(self, llm, messages: list[dict], output_type: type):
         self.call_history.append({"messages": messages, "output_type": output_type})
 
         response_key = self._extract_key(messages, output_type)
@@ -63,8 +64,6 @@ class FakeLLM:
 
         if output_type is str:
             parsed_content = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
-        elif output_type is dict:
-            parsed_content = json.loads(content) if isinstance(content, str) else content
         else:
             if isinstance(content, str):
                 parsed_content = output_type.model_validate_json(content)
@@ -88,17 +87,17 @@ class FakeLLM:
                 return "validate"
             elif 'Evaluation' in type_name or 'Score' in type_name:
                 return "score"
+            elif 'TreeNode' in type_name:
+                return "tree"
 
-        if output_type is dict:
-            return "execute"
-        elif output_type is str:
+        if output_type is str:
             if "Execution Plan Standard" in all_content or "Create a detailed execution plan" in all_content:
                 return "plan"
             if "Validation Task" in all_content or "validate whether" in all_content:
                 return "validate"
             if "Evaluation Standard" in all_content or "evaluation result" in all_content:
                 return "score"
-            if "Return a JSON dictionary" in all_content or "Return the final result directly" in all_content:
+            if "Output fields" in all_content or "Return the final result directly" in all_content:
                 return "execute"
             if "Original Task Output Requirements" in all_content:
                 return "format"
@@ -122,8 +121,6 @@ class FakeLLM:
     def _generate_default_response(self, output_type: type) -> str:
         if output_type is str:
             return "Fake LLM response"
-        elif output_type is dict:
-            return '{"result": "fake output"}'
         elif hasattr(output_type, 'model_json_schema'):
             schema = output_type.model_json_schema()
             properties = schema.get("properties", {})
@@ -142,6 +139,7 @@ class FakeLLM:
         return "{}"
 
 
+@contextmanager
 def create_mock_llm(fake_llm: FakeLLM):
     """
     Create a mock context manager that patches the LLM call.
@@ -154,10 +152,107 @@ def create_mock_llm(fake_llm: FakeLLM):
             agent = Agent(default_llm=fake.get_config())
             result = agent.run(task)
     """
-    def mock_raw_call(llm, messages):
-        return fake_llm.mock_call(llm, messages, str)
+    def mock_create(model, messages, max_tokens, **kwargs):
+        if 'response_format' in kwargs:
+            response_format = kwargs['response_format']
+            if response_format.get('type') == 'json_schema':
+                json_schema = response_format.get('json_schema', {})
+                schema = json_schema.get('schema', {})
+                schema_name = json_schema.get('name', '')
 
-    return patch('coralmind.llm._call_llm', side_effect=mock_raw_call)
+                response_key = _extract_key_from_schema_name(schema_name, messages)
+                list_key = f"{response_key}_list"
+
+                if list_key in fake_llm.responses:
+                    idx = fake_llm._call_count.get(response_key, 0)
+                    if idx < len(fake_llm.responses[list_key]):
+                        content = fake_llm.responses[list_key][idx]
+                        fake_llm._call_count[response_key] = idx + 1
+                    else:
+                        content = _generate_default_from_schema(schema)
+                elif response_key in fake_llm.responses:
+                    content = fake_llm.responses[response_key]
+                else:
+                    content = _generate_default_from_schema(schema)
+
+                mock_response = MagicMock()
+                mock_response.choices = [MagicMock()]
+                mock_response.choices[0].message.content = content
+                mock_response.usage.prompt_tokens = 10
+                mock_response.usage.completion_tokens = 20
+                mock_response.usage.total_tokens = 30
+                return mock_response
+
+        fake_config = LLMConfig(
+            model_id=model,
+            base_url="https://fake.api/v1",
+            api_key="fake-key"
+        )
+        response = fake_llm.mock_call(fake_config, messages, str)
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = response.content if isinstance(response.content, str) else response.content.model_dump_json()
+        mock_response.usage.prompt_tokens = response.token_cost.prompt
+        mock_response.usage.completion_tokens = response.token_cost.completion
+        mock_response.usage.total_tokens = response.token_cost.total
+        return mock_response
+
+    with patch('coralmind.llm.OpenAI') as mock_openai:
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = mock_create
+        yield mock_openai
+
+
+def _extract_key_from_schema_name(schema_name: str, messages: list[dict]) -> str:
+    """Extract response key from schema name and messages"""
+    all_content = " ".join([m.get("content", "") for m in messages])
+
+    if 'Plan' in schema_name and 'Validation' not in schema_name:
+        return "plan"
+    elif 'Validate' in schema_name:
+        return "validate"
+    elif 'Evaluation' in schema_name or 'Score' in schema_name:
+        return "score"
+    elif 'TreeNode' in schema_name:
+        return "tree"
+    elif 'DynamicOutput' in schema_name or 'Output' in schema_name:
+        return "execute"
+    elif 'DynamicModel' in schema_name:
+        return "format"
+
+    if "Execution Plan Standard" in all_content or "Create a detailed execution plan" in all_content:
+        return "plan"
+    if "Validation Task" in all_content or "validate whether" in all_content:
+        return "validate"
+    if "Evaluation Standard" in all_content or "evaluation result" in all_content:
+        return "score"
+    if "Output fields" in all_content or "Return the final result directly" in all_content:
+        return "execute"
+    if "Original Output" in all_content or "Transform the original output" in all_content:
+        return "format"
+
+    return "execute"
+
+
+def _generate_default_from_schema(schema: dict) -> str:
+    """Generate a default response from JSON schema"""
+    properties = schema.get("properties", {})
+    fake_data = {}
+    for k, v in properties.items():
+        prop_type = v.get("type", "string")
+        if prop_type == "integer":
+            fake_data[k] = 8
+        elif prop_type == "boolean":
+            fake_data[k] = True
+        elif prop_type == "array":
+            fake_data[k] = []
+        elif prop_type == "number":
+            fake_data[k] = 0.5
+        else:
+            fake_data[k] = "fake"
+    return json.dumps(fake_data)
 
 
 FakeLLMInstance = LLMConfig(

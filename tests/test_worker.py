@@ -59,7 +59,7 @@ class TestPlanner:
         fake.set_response("plan", expected_plan)
 
         with create_mock_llm(fake):
-            planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
+            planner = Planner(llm=fake.get_config())
             task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
             response = planner.make_plan(task_template, advice=None)
@@ -97,7 +97,7 @@ class TestPlanner:
         advice = PlanAdvice(type=PlanAdviceType.USE, old_plan=old_plan)
 
         with create_mock_llm(fake):
-            planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
+            planner = Planner(llm=fake.get_config())
             task_template = TaskTemplate(material_names=["input"], requirements="测试任务")
 
             response = planner.make_plan(task_template, advice)
@@ -106,7 +106,7 @@ class TestPlanner:
 
     def test_validate_plan_empty_nodes(self):
         fake = FakeLLM()
-        planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
+        planner = Planner(llm=fake.get_config())
 
         plan = Plan(deliverable="测试", nodes=[])
         task_template = TaskTemplate(material_names=["input"], requirements="测试")
@@ -116,7 +116,7 @@ class TestPlanner:
 
     def test_validate_plan_invalid_final_node(self):
         fake = FakeLLM()
-        planner = Planner(llm=fake.get_config(), formatter_llm=fake.get_config())
+        planner = Planner(llm=fake.get_config())
 
         plan = Plan(
             deliverable="处理结果",
@@ -153,7 +153,7 @@ class TestExecutor:
         fake.set_response("execute", "这是执行结果")
 
         with create_mock_llm(fake):
-            executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
+            executor = Executor(llm=fake.get_config())
 
             task_step = TaskStep(
                 materials={"input": "测试内容"},
@@ -174,7 +174,7 @@ class TestExecutor:
         fake.set_response("execute", '{"keywords": "AI, ML, DL"}')
 
         with create_mock_llm(fake):
-            executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
+            executor = Executor(llm=fake.get_config())
 
             task_step = TaskStep(
                 materials={"article": "文章内容"},
@@ -197,7 +197,7 @@ class TestExecutor:
         fake.set_response("execute", "重试后的结果")
 
         with create_mock_llm(fake):
-            executor = Executor(llm=fake.get_config(), formatter_llm=fake.get_config())
+            executor = Executor(llm=fake.get_config())
 
             task_step = TaskStep(
                 materials={"input": "测试"},
@@ -225,7 +225,7 @@ class TestValidator:
         fake.set_response("validate", {"passed": True, "reason": ""})
 
         with create_mock_llm(fake):
-            validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
+            validator = Validator(llm=fake.get_config())
 
             task_step = TaskStep(
                 materials={"input": "测试"},
@@ -246,7 +246,7 @@ class TestValidator:
         fake.set_response("validate", {"passed": False, "reason": "输出不完整"})
 
         with create_mock_llm(fake):
-            validator = Validator(llm=fake.get_config(), formatter_llm=fake.get_config())
+            validator = Validator(llm=fake.get_config())
 
             task_step = TaskStep(
                 materials={"input": "测试"},
@@ -311,7 +311,7 @@ class TestEvaluator:
         fake.set_response("score", {"score": 8, "reason": "结果良好"})
 
         with create_mock_llm(fake):
-            evaluator = Evaluator(llm=fake.get_config(), formatter_llm=fake.get_config())
+            evaluator = Evaluator(llm=fake.get_config())
 
             task = Task(
                 materials=[Material(name="input", content="测试内容")],

@@ -86,7 +86,7 @@ class _RequirementTreeBuilder:
             lines_text=lines_text
         )
 
-        response = call_llm(self.llm, as_user_messages([prompt]), TreeNode, self.llm)
+        response = call_llm(self.llm, as_user_messages([prompt]), TreeNode)
         return cast(TreeNode, response.content)
 
     def _convert_to_requirement_node(

@@ -21,10 +21,7 @@ VALIDATION_PROMPT_DICT = """# 任务要求
 1. 是否包含所有预期输出字段？
 2. 每个字段的内容是否与其定义匹配？
 3. 整体输出是否满足任务要求？
-{alignment_check}
-
-以 JSON 格式返回：
-{{"passed": true/false, "reason": "失败原因（如果通过则为空字符串）"}}"""
+{alignment_check}"""
 
 VALIDATION_PROMPT_STR = """# 任务要求
 
@@ -44,10 +41,7 @@ VALIDATION_PROMPT_STR = """# 任务要求
 1. 输出是否符合预期输出的描述？
 2. 输出是否满足任务要求？
 3. 输出是否干净，没有无关内容（如自吹自擂、元评论或非交付物的解释说明）？
-{alignment_check}
-
-以 JSON 格式返回：
-{{"passed": true/false, "reason": "失败原因（如果通过则为空字符串）"}}"""
+{alignment_check}"""
 
 VALIDATION_ALIGNMENT_CHECK = """4. 输出是否与原始全局要求保持一致？如果输出偏离了原始意图，应当拒绝。
 
@@ -64,15 +58,7 @@ VALIDATION_RELEVANT_CHECK_STR = """4. 输出是否与相关任务要求保持一
 相关任务要求：
 {relevant_requirements}"""
 
-SCORE_RETURN_FORMAT = """# 返回格式
-
-请以以下 JSON 格式返回评估结果：
-```json
-{
-  "score": 0-10 的整数,
-  "reason": "评分的详细原因"
-}
-```"""
+SCORE_RETURN_FORMAT = ""
 
 
 def build_validation_messages(

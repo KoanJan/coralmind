@@ -21,10 +21,7 @@ Please validate whether the actual output meets the following conditions:
 1. Does it contain all expected output fields?
 2. Does each field's content match its definition?
 3. Does the overall output meet the task requirements?
-{alignment_check}
-
-Return in JSON format:
-{{"passed": true/false, "reason": "reason for failure (empty string if passed)"}}"""
+{alignment_check}"""
 
 VALIDATION_PROMPT_STR = """# Task Requirements
 
@@ -44,10 +41,7 @@ Please validate whether the actual output meets the following conditions:
 1. Does the output match the expected output description?
 2. Does the output meet the task requirements?
 3. Is the output clean without irrelevant content (e.g., self-praise, meta-commentary, or explanations not part of the deliverable)?
-{alignment_check}
-
-Return in JSON format:
-{{"passed": true/false, "reason": "reason for failure (empty string if passed)"}}"""
+{alignment_check}"""
 
 VALIDATION_ALIGNMENT_CHECK = """4. Does the output align with the original global requirements? If the output deviates from the original intent, it should be rejected.
 
@@ -64,15 +58,7 @@ VALIDATION_RELEVANT_CHECK_STR = """4. Does the output align with the relevant ta
 Relevant Task Requirements:
 {relevant_requirements}"""
 
-SCORE_RETURN_FORMAT = """# Return Format
-
-Please return the evaluation result in the following JSON format:
-```json
-{
-  "score": integer from 0-10,
-  "reason": "detailed reason for the score"
-}
-```"""
+SCORE_RETURN_FORMAT = ""
 
 
 def build_validation_messages(

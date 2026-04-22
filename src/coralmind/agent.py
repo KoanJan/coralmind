@@ -39,16 +39,13 @@ class Agent:
 
         self.plan_advisor = PlanAdvisor()
         self.validator = Validator(
-            llm=validator_llm if validator_llm else default_llm,
-            formatter_llm=default_llm
+            llm=validator_llm if validator_llm else default_llm
         )
         self.planner = Planner(
-            llm=planner_llm if planner_llm else default_llm,
-            formatter_llm=default_llm
+            llm=planner_llm if planner_llm else default_llm
         )
         self.executor = Executor(
-            llm=executor_llm if executor_llm else default_llm,
-            formatter_llm=default_llm
+            llm=executor_llm if executor_llm else default_llm
         )
 
         if validator_llm:
@@ -57,7 +54,7 @@ class Agent:
             evaluator_llm = planner_llm
         else:
             evaluator_llm = default_llm
-        self.evaluator = Evaluator(llm=evaluator_llm, formatter_llm=default_llm)
+        self.evaluator = Evaluator(llm=evaluator_llm)
         self.output_formatter = OutputFormatter(llm=default_llm)
 
         self.max_retry_times_per_node: int = max_retry_times_per_node
